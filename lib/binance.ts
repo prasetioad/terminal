@@ -1,0 +1,90 @@
+import type { UTCTimestamp } from "lightweight-charts";
+import type { SeedBar } from "./flow";
+import type { Candle, IntervalKey } from "./types";
+import type { Listing } from "./venues";
+
+/** Binance spot REST. The *.binance.vision host serves market data only and is reachable in more regions. */
+const REST_HOSTS = ["https://api.binance.com", "https://data-api.binance.vision"];
+const REST_TIMEOUT_MS = 5_000;
+
+/**
+ * GET a Binance REST path from all hosts in parallel; the first OK response wins and
+ * the rest are aborted. A blocked host often hangs instead of refusing, so trying
+ * hosts one after another would cost a full timeout on every load.
+ */
+export async function fetchBinanceJson<T>(path: string, signal?: AbortSignal, timeoutMs = REST_TIMEOUT_MS): Promise<T> {
+  const controllers = REST_HOSTS.map(() => new AbortController());
+  let winner = -1;
+
+  const attempt = async (host: string, i: number): Promise<T> => {
+    const signals = [controllers[i].signal, AbortSignal.timeout(timeoutMs)];
+    if (signal) signals.push(signal);
+    const res = await fetch(`${host}${path}`, { signal: AbortSignal.any(signals), cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status} from ${host}`);
+    if (winner !== -1 && winner !== i) throw new Error("lost race");
+    winner = i;
+    controllers.forEach((c, j) => j !== i && c.abort());
+    return (await res.json()) as T;
+  };
+
+  try {
+    return await Promise.any(REST_HOSTS.map(attempt));
+  } catch (err) {
+    if (signal?.aborted) throw signal.reason;
+    throw err instanceof AggregateError ? err.errors[0] : err;
+  }
+}
+
+/** "0.00001000" → 5 */
+export function decimalsFromTick(tickSize: string): number {
+  const frac = tickSize.split(".")[1]?.replace(/0+$/, "") ?? "";
+  return frac.length;
+}
+
+/** [openTime, open, high, low, close, volume, closeTime, quoteVolume, trades, takerBuyBaseVolume, …] */
+type RawKline = [number, string, string, string, string, string, number, string, number, string, ...unknown[]];
+
+/** Seed the chart with recent history so it isn't empty on load. */
+export async function fetchKlines(
+  symbol: string,
+  interval: IntervalKey,
+  signal: AbortSignal,
+  limit = 1000,
+): Promise<Candle[]> {
+  const rows = await fetchBinanceJson<RawKline[]>(
+    `/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`,
+    signal,
+  );
+  return rows.map((k) => ({
+    time: Math.floor(k[0] / 1000) as UTCTimestamp,
+    open: parseFloat(k[1]),
+    high: parseFloat(k[2]),
+    low: parseFloat(k[3]),
+    close: parseFloat(k[4]),
+    volume: parseFloat(k[5]),
+    buyVolume: parseFloat(k[9]),
+  }));
+}
+
+/**
+ * Taker buy/sell volume history of a Binance USDⓈ-M perpetual, in base units of the
+ * spot coin (the listing's qtyScale undoes bundles like 1000PEPE).
+ */
+export async function fetchPerpFlowHistory(
+  listing: Listing,
+  interval: IntervalKey,
+  signal: AbortSignal,
+  limit = 1000,
+): Promise<SeedBar[]> {
+  const res = await fetch(
+    `https://fapi.binance.com/fapi/v1/klines?symbol=${listing.symbol}&interval=${interval}&limit=${limit}`,
+    { signal: AbortSignal.any([signal, AbortSignal.timeout(REST_TIMEOUT_MS)]), cache: "no-store" },
+  );
+  if (!res.ok) throw new Error(`HTTP ${res.status} from fapi.binance.com`);
+  const rows = (await res.json()) as RawKline[];
+  return rows.map((k) => {
+    const volume = parseFloat(k[5]) * listing.qtyScale;
+    const buy = parseFloat(k[9]) * listing.qtyScale;
+    return { time: Math.floor(k[0] / 1000), buy, sell: volume - buy };
+  });
+}

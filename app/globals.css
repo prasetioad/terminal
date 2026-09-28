@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: #0b0e11;
+  color: #e2e8f0;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer components {
+  .label {
+    @apply text-[10px] uppercase tracking-wider text-slate-500;
+  }
+
+  /* Range inputs */
+  .range {
+    @apply h-1 cursor-pointer appearance-none rounded-full bg-[#1E2631] outline-none;
+  }
+  .range::-webkit-slider-thumb {
+    @apply h-3.5 w-3.5 appearance-none rounded-full border-2 border-[#00E5FF] bg-[#0B0E11];
+    box-shadow: 0 0 8px rgba(0, 229, 255, 0.6);
+  }
+  .range::-moz-range-thumb {
+    @apply h-3 w-3 rounded-full border-2 border-[#00E5FF] bg-[#0B0E11];
+    box-shadow: 0 0 8px rgba(0, 229, 255, 0.6);
+  }
+}
+
+/* New feed rows flash once on mount (keys are stable, so only new prints animate). */
+@keyframes flash-buy {
+  from { box-shadow: inset 3px 0 0 #00ffa3, inset 0 0 0 999px rgba(0, 255, 163, 0.25); }
+  to { box-shadow: inset 3px 0 0 rgba(0, 255, 163, 0.5); }
+}
+@keyframes flash-sell {
+  from { box-shadow: inset 3px 0 0 #ff2d55, inset 0 0 0 999px rgba(255, 45, 85, 0.25); }
+  to { box-shadow: inset 3px 0 0 rgba(255, 45, 85, 0.5); }
+}
+.feed-row-buy { animation: flash-buy 0.9s ease-out forwards; }
+.feed-row-sell { animation: flash-sell 0.9s ease-out forwards; }
+
+/* Pressure bar: a soft highlight sweeping across the fill. */
+@keyframes pressure-sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+.pressure-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.22) 50%, transparent 100%);
+  animation: pressure-sweep 2.8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feed-row-buy, .feed-row-sell { animation: none; }
+  .pressure-shimmer::after { animation: none; display: none; }
+}
+
+/* Slim scrollbars */
+* { scrollbar-width: thin; scrollbar-color: #1e2631 transparent; }
