@@ -19,8 +19,18 @@ npm run dev   # http://localhost:3000
 ```
 venue feeds ─┬─ Binance spot trades ─→ CandleAggregator ─→ chart candles + indicators
              ├─ all trades ─→ FlowStore (taker buy/sell per venue per bar) ─→ Delta · CVD
+             ├─ all trades ─→ PressureTape (buy/sell per source per second) ─→ market pressure
              └─ all trades ─→ TakerOrderClusterer ─→ TradeLog ─→ bubbles · feed · stats · alerts
+                                                               └─→ large pressure
 ```
+
+**Pressure panel** (right column): *Large pressure* is the aggressive buy vs sell notional of the
+big trades (≥ the threshold); *Market pressure* is the same for every print, whatever its size.
+Both follow the source checkboxes and share one range (1m / 5m / 15m / session). The line below
+compares the large trades' direction with the **rest** of the market (all trades minus the large
+ones — comparing with the total would lean towards "with", since the large trades are part of it):
+*With flow* = size pushes the same way as everyone else; *Against flow* = size pushes
+against the crowd (absorption / positioning). "% vol" (next to the large threshold) is the large trades' share of all volume.
 
 ## Indicators & drawings
 
@@ -94,8 +104,9 @@ The worker stores a 5 s downsampled copy (max per price bucket) in one-minute ch
 | `lib/venues.ts` | Venues, markets (S/P), `Listing` scale factors |
 | `lib/clusterer.ts` | Merges fills of one taker order into one print |
 | `lib/candles.ts`, `lib/tradeLog.ts` | Candle aggregation; big-trade buffer, filter, stats, `measurePressure` |
-| `hooks/useTakerPressure.ts` + `components/PressureBar.tsx` | Aggressive buy vs sell notional over 1m/5m/15m/session (visible trades only) |
-| `lib/server/` | `/api/pairs`: CMC ranking × Binance spot pairs × venue instrument lists (cached) |
+| `lib/pressure.ts` | `PressureTape` (every print, per source per second), dominance, large-vs-rest `compareFlow` |
+| `hooks/useFlowPressure.ts` + `components/PressurePanel.tsx` | Large pressure (big trades ≥ threshold) and market pressure (all trades) over one shared 1m/5m/15m/session range, plus whether large trades go with or against the rest of the market |
+| `lib/server/` | `/api/pairs`: every Binance USDT spot pair (stablecoins / wrapped excluded), ordered by CMC rank (unranked last), with venue instrument lists (cached) |
 | `lib/indicators/` | Indicator framework (`types`, `manager`, `registry`) and the indicator modules |
 | `lib/orderbook/` | Venue order-book adapters (`SocketBook`, `SnapshotDiffBook`, one file per venue) |
 | `lib/heatmap/` | Frames, worker engine + protocol, page-side store, rasteriser |

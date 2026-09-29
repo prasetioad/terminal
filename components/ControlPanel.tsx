@@ -64,7 +64,7 @@ export default function ControlPanel(props: ControlPanelProps) {
       <Section title="Market">
         <div className="grid grid-cols-2 gap-2">
           <div className="col-span-2 flex flex-col gap-1">
-            <span className="label">Pair · top {props.pairs.length} CMC</span>
+            <span className="label">Pair · Binance USDT · CMC ranked</span>
             <SymbolPicker
               pairs={props.pairs}
               value={props.pair.symbol}

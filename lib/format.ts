@@ -57,3 +57,6 @@ export function formatSigned(value: number): string {
   if (abs >= 1) return `${sign}${abs.toFixed(2)}`;
   return `${sign}${abs.toPrecision(3)}`;
 }
+
+/** CoinMarketCap rank label: "#12", or "—" for a coin CMC doesn't rank. */
+export const formatRank = (rank: number | null): string => (rank === null ? "—" : `#${rank}`);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { formatPct, formatPrice, formatUsdCompact } from "@/lib/format";
+import { formatPct, formatPrice, formatRank, formatUsdCompact } from "@/lib/format";
 import { TONE_STYLE, summarizeFeeds } from "./connectionStatus";
 import type { SourceStatuses } from "@/hooks/useMarketStreams";
 import type { HistoryStatus, IntervalKey, Pair, Ticker24h } from "@/lib/types";
@@ -37,7 +37,7 @@ export default function Header({ pair, lastPrice, ticker, statuses, interval, hi
             <span className="ml-2 rounded bg-[#1E2631] px-1.5 py-0.5 text-[10px] text-slate-400">SPOT · {interval}</span>
           </div>
           <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">
-            {pair.name} · CMC #{pair.rank}
+            {pair.name} · {pair.rank === null ? "Unranked" : `CMC ${formatRank(pair.rank)}`}
           </div>
         </div>
       </div>

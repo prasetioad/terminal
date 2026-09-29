@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { getTopPairs } from "@/lib/server/pairs";
+import { getPairs } from "@/lib/server/pairs";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const data = await getTopPairs();
+    const data = await getPairs();
     return NextResponse.json(data, {
       headers: { "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400" },
     });

@@ -4,18 +4,27 @@ import { CHART_SOURCE, type Listing } from "../venues";
 import { CMC_SNAPSHOT } from "./cmcSnapshot";
 import { INSTRUMENT_LOADERS, type ExternalSource, type ListingResolver } from "./instruments";
 
-export const PAIR_COUNT = 100;
 const CACHE_TTL_MS = 60 * 60 * 1000;
 const DEGRADED_CACHE_TTL_MS = 5 * 60 * 1000; // retry soon if a source was missing
-// Top 100 CMC coins only yield ~65 Binance USDT pairs (stablecoins and non-Binance
-// coins drop out), so read further down the ranking to fill PAIR_COUNT.
-const CMC_SCAN_DEPTH = 250;
+// Deep enough to rank nearly every Binance USDT pair (e.g. COTI sits around #450);
+// the few left over are listed unranked.
+const CMC_SCAN_DEPTH = 2000;
 const CMC_LISTING_URL =
   "https://api.coinmarketcap.com/data-api/v3/cryptocurrency/listing" +
   `?start=1&limit=${CMC_SCAN_DEPTH}&sortBy=market_cap&sortType=desc&convert=USD`;
 
 /** CMC ticker → Binance base asset, where they differ. */
 const BINANCE_ALIASES: Record<string, string> = { BTT: "BTTC" };
+
+/**
+ * Binance assets that only mirror another price (stablecoins, fiat, wrapped coins):
+ * they have no orderflow of their own. CMC's stablecoin tag covers the ranked ones
+ * when CMC is reachable; this list covers the snapshot fallback and unranked assets.
+ */
+const PEGGED_ASSETS = new Set([
+  "USDC", "FDUSD", "TUSD", "USDP", "DAI", "FRAX", "USD1", "RLUSD", "XUSD", "BFUSD", "USDE", "USDS", "U", "KGST",
+  "EUR", "EURI", "AEUR", "WBTC", "WBETH", "BNSOL",
+]);
 
 interface CmcCoin {
   symbol: string;
@@ -34,7 +43,12 @@ interface ExchangeInfo {
   }[];
 }
 
-type RankedCoin = Pick<CmcCoin, "symbol" | "name" | "cmcRank">;
+interface RankedCoin {
+  symbol: string;
+  name: string;
+  cmcRank: number;
+  pegged: boolean;
+}
 type ExternalCatalogs = Partial<Record<ExternalSource, ListingResolver>>;
 
 let cache: { value: PairsResponse; expires: number } | null = null;
@@ -51,7 +65,7 @@ async function fetchCmcRanking(): Promise<RankedCoin[]> {
   const list = json.data?.cryptoCurrencyList;
   if (!list?.length) throw new Error("CMC returned no listings");
   return list
-    .filter((c) => !c.tags?.includes("stablecoin"))
+    .map((c) => ({ symbol: c.symbol, name: c.name, cmcRank: c.cmcRank, pegged: c.tags?.includes("stablecoin") ?? false }))
     .sort((a, b) => a.cmcRank - b.cmcRank);
 }
 
@@ -84,15 +98,18 @@ async function loadExternalCatalogs(): Promise<{ catalogs: ExternalCatalogs; una
   return { catalogs, unavailable };
 }
 
+/**
+ * Every tradable Binance USDT pair: CMC-ranked coins first (by rank), then the
+ * pairs CMC doesn't rank, alphabetically. Pegged assets are left out.
+ */
 function buildPairs(ranking: readonly RankedCoin[], ticks: Map<string, string>, catalogs: ExternalCatalogs): Pair[] {
   const pairs: Pair[] = [];
   const seen = new Set<string>();
-  for (const coin of ranking) {
-    const base = BINANCE_ALIASES[coin.symbol] ?? coin.symbol;
+  const add = (base: string, name: string, rank: number | null) => {
     // Non-ASCII tickers exist on Binance but their WebSocket streams don't deliver.
-    if (!/^[A-Z0-9]+$/.test(base) || seen.has(base)) continue;
+    if (seen.has(base) || PEGGED_ASSETS.has(base) || !/^[A-Z0-9]+$/.test(base)) return;
     const tick = ticks.get(base);
-    if (!tick) continue;
+    if (!tick) return;
     seen.add(base);
 
     const symbol = `${base}USDT`;
@@ -101,18 +118,15 @@ function buildPairs(ranking: readonly RankedCoin[], ticks: Map<string, string>, 
       const listing = resolve(base);
       if (listing) listings.push(listing);
     }
+    pairs.push({ symbol, base, name, rank, precision: decimalsFromTick(tick), minMove: parseFloat(tick), listings });
+  };
 
-    pairs.push({
-      symbol,
-      base,
-      name: coin.name,
-      rank: coin.cmcRank,
-      precision: decimalsFromTick(tick),
-      minMove: parseFloat(tick),
-      listings,
-    });
-    if (pairs.length === PAIR_COUNT) break;
+  for (const coin of ranking) {
+    const base = BINANCE_ALIASES[coin.symbol] ?? coin.symbol;
+    if (coin.pegged) seen.add(base); // never listed, not even unranked
+    else add(base, coin.name, coin.cmcRank);
   }
+  for (const base of [...ticks.keys()].sort()) add(base, base, null);
   return pairs;
 }
 
@@ -127,7 +141,7 @@ async function load(): Promise<PairsResponse> {
     external.status === "fulfilled" ? external.value : { catalogs: {}, unavailable: Object.keys(INSTRUMENT_LOADERS) as ExternalSource[] };
 
   const live = ranking.status === "fulfilled" ? ranking.value : null;
-  const coins = live ?? CMC_SNAPSHOT.map(([cmcRank, symbol, name]) => ({ cmcRank, symbol, name }));
+  const coins = live ?? CMC_SNAPSHOT.map(([cmcRank, symbol, name]) => ({ cmcRank, symbol, name, pegged: false }));
   const pairs = buildPairs(coins, ticks.value, catalogs);
   if (pairs.length === 0) throw new Error("No tradable pairs");
 
@@ -139,8 +153,8 @@ async function load(): Promise<PairsResponse> {
   };
 }
 
-/** Top PAIR_COUNT Binance USDT pairs by CMC rank with their venue listings, cached in memory. */
-export async function getTopPairs(): Promise<PairsResponse> {
+/** Every Binance USDT pair, CMC-ranked, with its venue listings; cached in memory. */
+export async function getPairs(): Promise<PairsResponse> {
   if (cache && cache.expires > Date.now()) return cache.value;
   inflight ??= load()
     .then((value) => {

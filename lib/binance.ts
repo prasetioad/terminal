@@ -1,6 +1,6 @@
 import type { UTCTimestamp } from "lightweight-charts";
 import type { SeedBar } from "./flow";
-import type { Candle, IntervalKey } from "./types";
+import type { Candle, IntervalKey, Ticker24h } from "./types";
 import type { Listing } from "./venues";
 
 /** Binance spot REST. The *.binance.vision host serves market data only and is reachable in more regions. */
@@ -39,6 +39,31 @@ export async function fetchBinanceJson<T>(path: string, signal?: AbortSignal, ti
 export function decimalsFromTick(tickSize: string): number {
   const frac = tickSize.split(".")[1]?.replace(/0+$/, "") ?? "";
   return frac.length;
+}
+
+interface RawTicker24h {
+  lastPrice: string;
+  openPrice: string;
+  highPrice: string;
+  lowPrice: string;
+  priceChangePercent: string;
+  quoteVolume: string;
+}
+
+/**
+ * Current 24h ticker. The WebSocket ticker only pushes when something changes, so a
+ * quiet pair would otherwise show an empty header until its next trade.
+ */
+export async function fetchTicker24h(symbol: string, signal: AbortSignal): Promise<Ticker24h> {
+  const t = await fetchBinanceJson<RawTicker24h>(`/api/v3/ticker/24hr?symbol=${symbol}`, signal);
+  return {
+    lastPrice: parseFloat(t.lastPrice),
+    open: parseFloat(t.openPrice),
+    high: parseFloat(t.highPrice),
+    low: parseFloat(t.lowPrice),
+    changePct: parseFloat(t.priceChangePercent),
+    quoteVolume: parseFloat(t.quoteVolume),
+  };
 }
 
 /** [openTime, open, high, low, close, volume, closeTime, quoteVolume, trades, takerBuyBaseVolume, …] */

@@ -1,3 +1,4 @@
+import type { Pressure } from "./pressure";
 import type { SourceId } from "./venues";
 import type { FlowStats, Trade } from "./types";
 
@@ -24,14 +25,6 @@ export interface TradeFilter {
 
 export const isVisible = (trade: Trade, filter: TradeFilter): boolean =>
   trade.usd >= filter.minUsd && !filter.hiddenSources.has(trade.source);
-
-/** Aggressive buy vs sell notional over a time window. */
-export interface Pressure {
-  buyUsd: number;
-  sellUsd: number;
-}
-
-export const EMPTY_PRESSURE: Pressure = { buyUsd: 0, sellUsd: 0 };
 
 export interface FlowSummary {
   feed: Trade[]; // newest first

@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { PriceChartHandle } from "@/components/chart/PriceChart";
 import { useMarketStreams, type SourceStatuses } from "./useMarketStreams";
-import { fetchKlines, fetchPerpFlowHistory } from "@/lib/binance";
+import { fetchKlines, fetchPerpFlowHistory, fetchTicker24h } from "@/lib/binance";
 import { CandleAggregator } from "@/lib/candles";
 import { TakerOrderClusterer } from "@/lib/clusterer";
 import { FlowStore } from "@/lib/flow";
+import { PressureTape } from "@/lib/pressure";
 import { streamSpecsFor, type MarketEvent } from "@/lib/streams";
 import { EMPTY_STATS, TradeLog, isVisible, type FlowSummary, type TradeFilter } from "@/lib/tradeLog";
 import { CHART_SOURCE } from "@/lib/venues";
@@ -39,6 +40,8 @@ export interface Orderflow extends MarketView {
   trades: readonly Trade[];
   /** Per-venue taker buy/sell per bar, read directly by the flow indicators. */
   flow: FlowStore;
+  /** Every print's notional by side and source, for whole-market pressure. */
+  tape: PressureTape;
   clearLog: () => void;
 }
 
@@ -49,6 +52,7 @@ const INITIAL_VIEW: MarketView = { feed: [], stats: EMPTY_STATS, lastPrice: null
  *
  *   venue feeds ─┬─ chart source trades ─→ candles ─→ chart + indicators
  *                ├─ all trades ─→ flow store (buy/sell per venue per bar) ─→ Delta, CVD
+ *                ├─ all trades ─→ pressure tape (buy/sell per source per second) ─→ market pressure
  *                └─ all trades ─→ taker-order clusterer ─→ big-trade log ─→ bubbles, feed, stats
  *
  * Ticks arrive dozens of times per second, so they only mutate buffers. The chart
@@ -59,6 +63,7 @@ export function useOrderflow({ pair, interval, filter, chartRef, onBigTrade }: U
   const [candles] = useState(() => new CandleAggregator(INTERVALS[interval]));
   const [log] = useState(() => new TradeLog());
   const [flow] = useState(() => new FlowStore(INTERVALS[interval]));
+  const [tape] = useState(() => new PressureTape());
   const [view, setView] = useState<MarketView>(INITIAL_VIEW);
   const [historyStatus, setHistoryStatus] = useState<HistoryStatus>("loading");
 
@@ -134,6 +139,7 @@ export function useOrderflow({ pair, interval, filter, chartRef, onBigTrade }: U
 
       const { trade, orderKey } = event;
       flow.add(trade);
+      tape.add(trade);
       if (trade.source === CHART_SOURCE) {
         latestRef.current.lastPrice = trade.price;
         viewDirtyRef.current = true;
@@ -144,7 +150,7 @@ export function useOrderflow({ pair, interval, filter, chartRef, onBigTrade }: U
       scheduleChartFlush();
       clusterer.push(trade, orderKey);
     },
-    [candles, flow, clusterer, scheduleChartFlush],
+    [candles, flow, tape, clusterer, scheduleChartFlush],
   );
 
   const specs = useMemo(() => streamSpecsFor(pair.listings), [pair.listings]);
@@ -164,14 +170,29 @@ export function useOrderflow({ pair, interval, filter, chartRef, onBigTrade }: U
     publishView();
   }, [filter, publishView]);
 
-  // The big-trade log and ticker belong to one asset: start over on symbol change.
+  // The big-trade log, pressure tape and ticker belong to one asset: start over on symbol change.
   useEffect(() => {
     clusterer.clear();
     log.clear();
+    tape.clear();
     latestRef.current = { lastPrice: null, ticker: null };
     publishView();
     chartRef.current?.refreshBubbles();
-  }, [symbol, clusterer, log, chartRef, publishView]);
+  }, [symbol, clusterer, log, tape, chartRef, publishView]);
+
+  // Seed the header from REST; a ticker from the live stream (fresher) wins if it came first.
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchTicker24h(symbol, controller.signal).then(
+      (ticker) => {
+        if (controller.signal.aborted || latestRef.current.ticker) return;
+        latestRef.current.ticker = ticker;
+        viewDirtyRef.current = true;
+      },
+      () => {}, // the stream fills it in on the next change
+    );
+    return () => controller.abort();
+  }, [symbol]);
 
   // New dataset on symbol or timeframe change: seed from REST, then replay the
   // chart-source ticks that arrived while the request was in flight.
@@ -235,9 +256,10 @@ export function useOrderflow({ pair, interval, filter, chartRef, onBigTrade }: U
   const clearLog = useCallback(() => {
     clusterer.clear();
     log.clear();
+    tape.clear();
     publishView();
     chartRef.current?.refreshBubbles();
-  }, [clusterer, log, chartRef, publishView]);
+  }, [clusterer, log, tape, chartRef, publishView]);
 
-  return { ...view, statuses, historyStatus, trades: log.trades, flow, clearLog };
+  return { ...view, statuses, historyStatus, trades: log.trades, flow, tape, clearLog };
 }

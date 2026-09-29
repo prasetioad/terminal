@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { PairsStatus } from "@/hooks/usePairs";
+import { formatRank } from "@/lib/format";
 import type { Pair } from "@/lib/types";
 
 interface SymbolPickerProps {
@@ -18,6 +19,23 @@ const STATUS_NOTE: Record<PairsStatus, string> = {
   error: "Pair list unavailable",
 };
 
+/**
+ * Pairs matching a query, best match first: exact ticker, then ticker prefix, then
+ * any ticker or name containing it. Within each group the CMC order is kept, so
+ * "OP" puts OP first rather than whichever coin with "op" in its name ranks higher.
+ */
+function searchPairs(pairs: Pair[], query: string): Pair[] {
+  const q = query.trim().toUpperCase();
+  if (!q) return pairs;
+  const score = (p: Pair) =>
+    p.base === q ? 0 : p.base.startsWith(q) ? 1 : p.base.includes(q) || p.name.toUpperCase().includes(q) ? 2 : -1;
+  return pairs
+    .map((pair) => ({ pair, score: score(pair) }))
+    .filter((m) => m.score >= 0)
+    .sort((a, b) => a.score - b.score) // stable: ties keep the CMC order
+    .map((m) => m.pair);
+}
+
 /** Searchable combobox over the CMC-ranked pairs. Keyboard: ↑ ↓ Enter Esc. */
 export default function SymbolPicker({ pairs, value, onChange, status }: SymbolPickerProps) {
   const [open, setOpen] = useState(false);
@@ -30,11 +48,7 @@ export default function SymbolPicker({ pairs, value, onChange, status }: SymbolP
 
   const current = pairs.find((p) => p.symbol === value);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toUpperCase();
-    if (!q) return pairs;
-    return pairs.filter((p) => p.base.includes(q) || p.name.toUpperCase().includes(q));
-  }, [pairs, query]);
+  const filtered = useMemo(() => searchPairs(pairs, query), [pairs, query]);
 
   // Close on outside click.
   useEffect(() => {
@@ -88,7 +102,7 @@ export default function SymbolPicker({ pairs, value, onChange, status }: SymbolP
         aria-expanded={open}
         className="flex w-full items-center gap-2 rounded border border-[#1E2631] bg-[#0B0E11] px-2 py-1.5 text-left font-mono text-xs text-slate-100 outline-none hover:border-slate-500 focus:border-[#00E5FF]/60"
       >
-        {current && <span className="w-7 shrink-0 text-[10px] text-slate-500">#{current.rank}</span>}
+        {current && <span className="w-7 shrink-0 text-[10px] text-slate-500">{formatRank(current.rank)}</span>}
         <span className="font-semibold">{current?.base ?? value.replace(/USDT$/, "")}</span>
         <span className="text-slate-500">/USDT</span>
         <span className="ml-auto truncate text-[10px] text-slate-500">{current?.name}</span>
@@ -130,7 +144,7 @@ export default function SymbolPicker({ pairs, value, onChange, status }: SymbolP
                   i === active ? "bg-[#00E5FF]/10" : ""
                 } ${p.symbol === value ? "text-[#00E5FF]" : "text-slate-200"}`}
               >
-                <span className="w-8 shrink-0 text-[10px] text-slate-500">#{p.rank}</span>
+                <span className="w-8 shrink-0 text-[10px] text-slate-500">{formatRank(p.rank)}</span>
                 <span className="font-semibold">{p.base}</span>
                 <span className="ml-auto truncate text-[10px] text-slate-500">{p.name}</span>
               </li>

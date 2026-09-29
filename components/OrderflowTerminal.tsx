@@ -7,16 +7,17 @@ import IndicatorSettings from "./chart/IndicatorSettings";
 import PriceChart, { type PriceChartHandle } from "./chart/PriceChart";
 import Header from "./Header";
 import ControlPanel from "./ControlPanel";
-import PressureBar from "./PressureBar";
+import PressurePanel from "./PressurePanel";
 import TradeFeed from "./TradeFeed";
 import { useAlertSound } from "@/hooks/useAlertSound";
 import { useIndicators } from "@/hooks/useIndicators";
 import { useHeatmapEngine } from "@/hooks/useHeatmapEngine";
 import { useOrderflow } from "@/hooks/useOrderflow";
 import { usePairs } from "@/hooks/usePairs";
-import { useTakerPressure, type PressureRange } from "@/hooks/useTakerPressure";
+import { useFlowPressure } from "@/hooks/useFlowPressure";
 import { DrawingController } from "@/lib/drawings/controller";
 import { heatmapSources } from "@/lib/indicators/heatmap";
+import type { PressureRange } from "@/lib/pressure";
 import type { TradeFilter } from "@/lib/tradeLog";
 import { INTERVALS, type IntervalKey } from "@/lib/types";
 import type { SourceId } from "@/lib/venues";
@@ -47,7 +48,7 @@ export default function OrderflowTerminal() {
   const chartRef = useRef<PriceChartHandle>(null);
   const alerts = useAlertSound(threshold);
   const market = useOrderflow({ pair, interval, filter, chartRef, onBigTrade: alerts.play });
-  const pressure = useTakerPressure(market.trades, filter, pressureRange);
+  const pressure = useFlowPressure(market.trades, market.tape, filter, pressureRange);
 
   const indicators = useIndicators();
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -125,7 +126,13 @@ export default function OrderflowTerminal() {
         </section>
 
         <div className="flex h-[480px] min-h-0 flex-col bg-[#0D1117] lg:h-auto">
-          <PressureBar base={pair.base} pressure={pressure} range={pressureRange} onRangeChange={setPressureRange} />
+          <PressurePanel
+            base={pair.base}
+            threshold={threshold}
+            pressure={pressure}
+            range={pressureRange}
+            onRangeChange={setPressureRange}
+          />
           <TradeFeed trades={market.feed} threshold={threshold} precision={pair.precision} />
         </div>
       </main>

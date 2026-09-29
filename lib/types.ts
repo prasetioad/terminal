@@ -61,7 +61,7 @@ export interface Pair {
   symbol: string; // Binance spot symbol, e.g. "BTCUSDT"
   base: string; // e.g. "BTC"
   name: string; // e.g. "Bitcoin"
-  rank: number; // CoinMarketCap rank
+  rank: number | null; // CoinMarketCap rank; null when CMC doesn't rank the coin
   precision: number; // price decimals, from the Binance spot tickSize
   minMove: number; // tickSize
   listings: Listing[]; // always includes the chart source
