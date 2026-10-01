@@ -48,7 +48,7 @@ export default function OrderflowTerminal() {
   const chartRef = useRef<PriceChartHandle>(null);
   const alerts = useAlertSound(threshold);
   const market = useOrderflow({ pair, interval, filter, chartRef, onBigTrade: alerts.play });
-  const pressure = useFlowPressure(market.trades, market.tape, filter, pressureRange);
+  const pressure = useFlowPressure(market.log, market.tape, filter, pressureRange);
 
   const indicators = useIndicators();
   const [pickerOpen, setPickerOpen] = useState(false);

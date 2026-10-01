@@ -26,17 +26,23 @@ venue feeds ─┬─ Binance spot trades ─→ CandleAggregator ─→ chart c
 
 **Pressure panel** (right column): *Large pressure* is the aggressive buy vs sell notional of the
 big trades (≥ the threshold); *Market pressure* is the same for every print, whatever its size.
-Both follow the source checkboxes and share one range (1m / 5m / 15m / session). The line below
+Both follow the source checkboxes and share one range (1m / 5m / 15m / 1h / 4h / 1D / session).
+Trades are only seen live, so until the page has been open for the whole range the panel says
+how much it covers ("Collecting · 42m of 4h"); ranges over 15 min are exact to the minute. The line below
 compares the large trades' direction with the **rest** of the market (all trades minus the large
 ones — comparing with the total would lean towards "with", since the large trades are part of it):
 *With flow* = size pushes the same way as everyone else; *Against flow* = size pushes
 against the crowd (absorption / positioning). "% vol" (next to the large threshold) is the large trades' share of all volume.
 
+**Timeframes:** 1m, 5m, 15m, 1h, 4h, 1D (Binance klines; bars align to UTC as on the exchange,
+so daily bars are labelled by their UTC date).
+
 ## Indicators & drawings
 
 - **Indicators** (`ƒx Indicators`): Volume, Delta, Cumulative Volume Delta, Volume Profile
   (visible range or per day/session — POC, VAH/VAL, LVN zones), VWAP (day/week/session anchor,
-  σ bands), Sessions (Asia/London/New York in local exchange hours, DST-aware). Each has a
+  σ bands), Sessions (Asia/London/New York in local exchange hours, DST-aware; hidden — like
+  per-day / per-session volume profiles — on timeframes where a period spans fewer than 3 bars). Each has a
   settings dialog; the setup is saved in the browser.
 - Delta/CVD sources: *Binance* (spot/perp, with kline history) or *All venues* (live since load).
 - **Liquidity Heatmap**: resting order-book liquidity over time (bright = walls), the current depth
@@ -77,8 +83,36 @@ The worker stores a 5 s downsampled copy (max per price bucket) in one-minute ch
   (e.g. a server API) and move existing data with `copyHistory(from, to)`.
 
 - **Drawing tools** (left strip): trend line, horizontal line, rectangle, Fibonacci retracement;
-  magnet (snap to OHLC), hide, delete all. Select to recolour/delete (Del), Esc cancels,
-  Alt+T/H/R/F arms a tool. Drawings are saved per symbol and anchored in time/price.
+  magnet (snap to OHLC), hide, delete all. Select to recolour, set the line width (1–4 px,
+  default 1) or delete (Del); Esc cancels, Alt+T/H/R/F arms a tool. Drawings are saved per
+  symbol and anchored in time/price.
+- **Long / short position** (one toolbar button with a menu, as in TradingView; Alt+L / Alt+S):
+  one click places entry, stop (≈ 40 px away) and target at 2R, 20 bars wide. Drag the handles
+  on the left edge (entry, target, stop) or the right edge (width); prices snap to the tick.
+  ⚙ Settings: entry / profit / stop levels, account size, **position size by risk** (TradingView's
+  default: 25 % of a 1,000 account; % or USDT), **by quantity** or **by order value**, leverage and
+  fee per side. It computes quantity, order value, margin, P&L at target and stop (net of fees),
+  risk of account and R:R, and walks the bars after the entry: target hit / stop hit / open P&L
+  / closed at the end (a bar touching both counts as the stop). Stats show on hover or when
+  selected, or always (option).
+- **Undo / redo** (Ctrl/⌘+Z, Ctrl/⌘+Shift+Z or Ctrl+Y, or the arrows in the tool strip): every
+  drawing change — add, move, resize, delete, clear all, colour, width, profile options — up to
+  100 steps per symbol (history starts fresh when the symbol changes or the page reloads).
+- **Range profiles** (drag across the bars to profile; resize by the edge handles, move by the body,
+  ⚙ Settings when selected). Volume comes from Binance klines at a resolution set by the range's
+  length alone (finest with ≤ 3,000 bars: 1m, 3m, 5m…), fetched in cached 1,000-bar chunks — so a
+  profile is identical on every chart timeframe and isn't cut off by how much history the chart
+  holds. The settings panel shows the POC / VAH / VAL and the resolution used.
+  - *Fixed range volume profile* (Alt+V) — TradingView's FRVP: rows layout (number of rows /
+    ticks per row), Up/Down · Total · Delta volume (up/down by bar direction, as TradingView
+    does), value area %, width % of the box, left/right placement, values, VAH/VAL lines,
+    extend right. Defaults as TradingView (24 rows, 70 %, width 30 %, left).
+  - *Orderflow profile* (Alt+O) — for Fabio Valentini's approach: rows coloured by aggressor
+    (taker) delta, LVN zones, POC, VAH and VAL extended right as trade levels, and a summary of
+    the range's delta and profile shape (P = buyers in control, b = sellers in control, D = balance).
+- **Undo / redo** (Ctrl/⌘+Z, Ctrl/⌘+Shift+Z or Ctrl+Y, or the arrows in the tool strip): every
+  drawing change — add, move, resize, delete, clear all, colour, width, profile options — up to
+  100 steps per symbol (history starts fresh when the symbol changes or the page reloads).
 - **Range profiles** (drag across the bars to profile; resize by the edge handles, move by the body):
   - *Fixed range volume profile* (Alt+V) — TradingView-style: up/down volume per row, POC,
     value area (VAH/VAL shown when selected).
@@ -105,13 +139,13 @@ The worker stores a 5 s downsampled copy (max per price bucket) in one-minute ch
 | `lib/clusterer.ts` | Merges fills of one taker order into one print |
 | `lib/candles.ts`, `lib/tradeLog.ts` | Candle aggregation; big-trade buffer, filter, stats, `measurePressure` |
 | `lib/pressure.ts` | `PressureTape` (every print, per source per second), dominance, large-vs-rest `compareFlow` |
-| `hooks/useFlowPressure.ts` + `components/PressurePanel.tsx` | Large pressure (big trades ≥ threshold) and market pressure (all trades) over one shared 1m/5m/15m/session range, plus whether large trades go with or against the rest of the market |
+| `hooks/useFlowPressure.ts` + `components/PressurePanel.tsx` | Large pressure (big trades ≥ threshold) and market pressure (all trades) over one shared 1m…1D/session range, plus whether large trades go with or against the rest of the market |
 | `lib/server/` | `/api/pairs`: every Binance USDT spot pair (stablecoins / wrapped excluded), ordered by CMC rank (unranked last), with venue instrument lists (cached) |
 | `lib/indicators/` | Indicator framework (`types`, `manager`, `registry`) and the indicator modules |
 | `lib/orderbook/` | Venue order-book adapters (`SocketBook`, `SnapshotDiffBook`, one file per venue) |
 | `lib/heatmap/` | Frames, worker engine + protocol, page-side store, rasteriser |
 | `lib/persistence/` | IndexedDB helpers with migrations, heatmap repository |
-| `lib/drawings/` | Drawing model, geometry (paint + hit-test) and `DrawingController` (interaction, persistence) |
+| `lib/drawings/` | Drawing model, geometry (paint + hit-test), range profiles + their timeframe-independent kline store (`rangeData.ts`), long/short positions (`position.ts`: sizing, P&L, outcome), and `DrawingController` (interaction, undo, persistence) |
 | `lib/flow.ts`, `lib/profile.ts`, `lib/sessions.ts` | Flow store, volume profile math, DST-aware sessions/anchors |
 | `lib/chart/` | Time ↔ bar-index mapping, generic canvas primitive |
 | `components/chart/` | Chart wrapper, legends, indicator picker/settings, drawing toolbar |

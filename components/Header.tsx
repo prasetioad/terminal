@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { formatPct, formatPrice, formatRank, formatUsdCompact } from "@/lib/format";
 import { TONE_STYLE, summarizeFeeds } from "./connectionStatus";
 import type { SourceStatuses } from "@/hooks/useMarketStreams";
-import type { HistoryStatus, IntervalKey, Pair, Ticker24h } from "@/lib/types";
+import { INTERVAL_LABELS, type HistoryStatus, type IntervalKey, type Pair, type Ticker24h } from "@/lib/types";
 
 interface HeaderProps {
   pair: Pair;
@@ -34,7 +34,7 @@ export default function Header({ pair, lastPrice, ticker, statuses, interval, hi
           <div className="font-mono text-sm font-semibold tracking-wide text-slate-100">
             {base}
             <span className="text-slate-500">/USDT</span>
-            <span className="ml-2 rounded bg-[#1E2631] px-1.5 py-0.5 text-[10px] text-slate-400">SPOT · {interval}</span>
+            <span className="ml-2 rounded bg-[#1E2631] px-1.5 py-0.5 text-[10px] text-slate-400">SPOT · {INTERVAL_LABELS[interval]}</span>
           </div>
           <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">
             {pair.name} · {pair.rank === null ? "Unranked" : `CMC ${formatRank(pair.rank)}`}

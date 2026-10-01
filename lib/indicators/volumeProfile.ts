@@ -1,7 +1,7 @@
 import { CanvasPrimitive, type DrawScope } from "../chart/CanvasPrimitive";
 import { formatPrice } from "../format";
 import { buildProfile, type VolumeProfile } from "../profile";
-import { SESSIONS, sessionWindows, type SessionId } from "../sessions";
+import { HIDDEN_ON_TIMEFRAME, SESSIONS, sessionWindows, spansEnoughBars, type SessionId } from "../sessions";
 import { firstIndexFrom, visibleBars, xAtTime } from "./common";
 import type { IndicatorData, IndicatorDefinition, IndicatorParams } from "./types";
 
@@ -65,6 +65,8 @@ export const volumeProfileIndicator: IndicatorDefinition = {
     let cache = new Map<number, { sig: string; profile: VolumeProfile | null }>();
     /** Most recent profile on screen (visible range, or the latest visible day/session), for the legend. */
     let latest: VolumeProfile | null = null;
+    /** Day / session mode on bars too long to profile those periods. */
+    let hiddenByTimeframe = false;
 
     const profileFor = (d: IndicatorData, key: number, from: number, to: number): VolumeProfile | null => {
       const last = d.candles[to];
@@ -89,7 +91,9 @@ export const volumeProfileIndicator: IndicatorDefinition = {
               return { start, end: start + DAY_MS };
             })
           : sessionWindows(fromMs, toMs, new Set([mode as SessionId]));
-      return spans
+      const drawable = spans.filter(({ start, end }) => spansEnoughBars(end - start, d.intervalMs));
+      hiddenByTimeframe = spans.length > 0 && drawable.length === 0;
+      return drawable
         .map(({ start, end }) => ({
           start,
           end,
@@ -107,6 +111,7 @@ export const volumeProfileIndicator: IndicatorDefinition = {
       scope.ctx.font = FONT;
 
       if (params.mode === "visible") {
+        hiddenByTimeframe = false;
         const profile = profileFor(d, -1, bars.from, bars.to);
         latest = profile;
         if (!profile) return;
@@ -226,6 +231,7 @@ export const volumeProfileIndicator: IndicatorDefinition = {
         primitive.refresh();
       },
       legend(d) {
+        if (hiddenByTimeframe) return [HIDDEN_ON_TIMEFRAME];
         if (!latest) return [];
         const p = latest;
         const price = (v: number) => formatPrice(v, d.precision);

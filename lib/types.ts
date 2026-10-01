@@ -48,13 +48,27 @@ export interface FlowStats {
   largest: Trade | null;
 }
 
+/** Chart timeframes in ms. Keys are Binance kline intervals; bars align to UTC like Binance's. */
 export const INTERVALS = {
   "1m": 60_000,
   "5m": 300_000,
   "15m": 900_000,
+  "1h": 3_600_000,
+  "4h": 14_400_000,
+  "1d": 86_400_000,
 } as const;
 
 export type IntervalKey = keyof typeof INTERVALS;
+
+/** How timeframes are shown (TradingView style). */
+export const INTERVAL_LABELS: Record<IntervalKey, string> = {
+  "1m": "1m",
+  "5m": "5m",
+  "15m": "15m",
+  "1h": "1h",
+  "4h": "4h",
+  "1d": "1D",
+};
 
 /** A Binance USDT spot pair, ranked by CoinMarketCap market cap, with its listings on every venue. */
 export interface Pair {

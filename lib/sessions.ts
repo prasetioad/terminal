@@ -21,6 +21,16 @@ export const SESSIONS: readonly SessionDef[] = [
   { id: "newyork", name: "New York", timeZone: "America/New_York", start: [9, 30], end: [16, 0], color: "245, 197, 66" },
 ];
 
+/**
+ * Whether a period (a session, a day) is worth drawing on bars of `intervalMs`: it must
+ * span a few bars. On 4h or daily bars a 6–8 h session covers one or two bars and a
+ * per-period overlay would only repeat the candles as clutter.
+ */
+export const spansEnoughBars = (periodMs: number, intervalMs: number): boolean => periodMs >= 3 * intervalMs;
+
+/** Legend note for period overlays switched off by the timeframe. */
+export const HIDDEN_ON_TIMEFRAME = { text: "Hidden on this timeframe", color: "#64748B" } as const;
+
 export interface SessionWindow {
   def: SessionDef;
   start: number; // ms

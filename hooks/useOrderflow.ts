@@ -38,6 +38,8 @@ export interface Orderflow extends MarketView {
   historyStatus: HistoryStatus;
   /** Live, chronologically ordered buffer of trades from every source, read directly by the chart. */
   trades: readonly Trade[];
+  /** The big-trade log behind `trades` (for how far back it is complete). */
+  log: TradeLog;
   /** Per-venue taker buy/sell per bar, read directly by the flow indicators. */
   flow: FlowStore;
   /** Every print's notional by side and source, for whole-market pressure. */
@@ -261,5 +263,5 @@ export function useOrderflow({ pair, interval, filter, chartRef, onBigTrade }: U
     chartRef.current?.refreshBubbles();
   }, [clusterer, log, tape, chartRef, publishView]);
 
-  return { ...view, statuses, historyStatus, trades: log.trades, flow, tape, clearLog };
+  return { ...view, statuses, historyStatus, trades: log.trades, log, flow, tape, clearLog };
 }

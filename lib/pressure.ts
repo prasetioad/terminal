@@ -9,17 +9,21 @@ export interface Pressure {
 
 export const EMPTY_PRESSURE: Pressure = { buyUsd: 0, sellUsd: 0 };
 
-/** Rolling windows the pressure panel offers; null = the whole session (since the pair opened). */
+/**
+ * Rolling windows the pressure panel offers; null = the whole session (since the pair
+ * opened). Trades are only seen live, so a window fills up while the page is open.
+ */
 export const PRESSURE_RANGES = {
   "1m": 60_000,
   "5m": 300_000,
   "15m": 900_000,
+  "1h": 3_600_000,
+  "4h": 14_400_000,
+  "1D": 86_400_000,
   Session: null,
 } as const satisfies Record<string, number | null>;
 
 export type PressureRange = keyof typeof PRESSURE_RANGES;
-
-const LONGEST_RANGE_MS = Math.max(...Object.values(PRESSURE_RANGES).filter((ms) => ms !== null));
 
 /* ───────────────────────────── dominance ───────────────────────────── */
 
@@ -80,41 +84,39 @@ export function compareFlow(large: Pressure, market: Pressure): FlowComparison {
 
 /* ───────────────────────────── tape ───────────────────────────── */
 
-const BUCKET_MS = 1_000;
 const SOURCE_INDEX = new Map<SourceId, number>(ALL_SOURCES.map((source, i) => [source, i]));
 
-interface Bucket {
-  start: number;
+interface Totals {
   /** Notional per source, indexed like ALL_SOURCES. */
   buy: Float64Array;
   sell: Float64Array;
 }
 
-const newTotals = () => ({ buy: new Float64Array(ALL_SOURCES.length), sell: new Float64Array(ALL_SOURCES.length) });
+interface Bucket extends Totals {
+  start: number;
+}
+
+const newTotals = (): Totals => ({ buy: new Float64Array(ALL_SOURCES.length), sell: new Float64Array(ALL_SOURCES.length) });
 
 /**
- * Every trade print of the pair, whatever its size, summed into one-second buckets
- * per source. Holds the longest rolling range plus session totals, so any range can
- * be measured cheaply (≤ 900 buckets) regardless of how busy the tape is.
+ * Buckets of one resolution covering `spanMs`: fine buckets keep short windows exact,
+ * coarse ones make a day affordable (1,440 one-minute buckets instead of 86,400).
  */
-export class PressureTape {
+class BucketSeries {
   private buckets: Bucket[] = []; // chronological
-  private session = newTotals();
 
-  add(trade: Trade): void {
-    const index = SOURCE_INDEX.get(trade.source);
-    if (index === undefined) return;
-    const side = trade.side === "BUY" ? "buy" : "sell";
-    this.session[side][index] += trade.usd;
+  constructor(
+    readonly bucketMs: number,
+    readonly spanMs: number,
+  ) {}
 
-    const bucket = this.bucketFor(Math.floor(trade.time / BUCKET_MS) * BUCKET_MS);
-    if (bucket) bucket[side][index] += trade.usd;
+  add(time: number, side: "buy" | "sell", index: number, usd: number): void {
+    const bucket = this.bucketFor(Math.floor(time / this.bucketMs) * this.bucketMs);
+    if (bucket) bucket[side][index] += usd;
   }
 
-  /** Visible notional since `sinceMs` (null = the whole session). */
-  measure(sinceMs: number | null, hidden: ReadonlySet<SourceId>): Pressure {
-    if (sinceMs === null) return sum(this.session, hidden);
-    const from = Math.floor(sinceMs / BUCKET_MS) * BUCKET_MS;
+  measure(sinceMs: number, hidden: ReadonlySet<SourceId>): Pressure {
+    const from = Math.floor(sinceMs / this.bucketMs) * this.bucketMs;
     const total = { buyUsd: 0, sellUsd: 0 };
     for (let i = this.buckets.length - 1; i >= 0 && this.buckets[i].start >= from; i--) {
       const part = sum(this.buckets[i], hidden);
@@ -126,13 +128,12 @@ export class PressureTape {
 
   clear(): void {
     this.buckets = [];
-    this.session = newTotals();
   }
 
-  /** The bucket starting at `start`, created in order; null if it's older than any range needs. */
+  /** The bucket starting at `start`, created in order; null if it's older than the span. */
   private bucketFor(start: number): Bucket | null {
     const newest = this.buckets.at(-1);
-    if (newest && start < newest.start - LONGEST_RANGE_MS) return null;
+    if (newest && start < newest.start - this.spanMs) return null;
     // Venues deliver slightly out of order: search back from the newest bucket.
     let i = this.buckets.length;
     while (i > 0 && this.buckets[i - 1].start > start) i--;
@@ -144,14 +145,53 @@ export class PressureTape {
   }
 
   private trim(): void {
-    const horizon = this.buckets[this.buckets.length - 1].start - LONGEST_RANGE_MS - BUCKET_MS;
+    const horizon = this.buckets[this.buckets.length - 1].start - this.spanMs - this.bucketMs;
     let drop = 0;
     while (drop < this.buckets.length && this.buckets[drop].start < horizon) drop++;
     if (drop > 0) this.buckets.splice(0, drop);
   }
 }
 
-function sum(totals: { buy: Float64Array; sell: Float64Array }, hidden: ReadonlySet<SourceId>): Pressure {
+/**
+ * Every trade print of the pair, whatever its size, summed per source into
+ * one-second buckets (last 15 min) and one-minute buckets (last 24 h), plus session
+ * totals. Any range is measured from at most ~1,500 buckets however busy the tape is;
+ * ranges beyond 15 min are exact to the minute.
+ */
+export class PressureTape {
+  private readonly series = [new BucketSeries(1_000, 15 * 60_000), new BucketSeries(60_000, 24 * 60 * 60_000)];
+  private session = newTotals();
+  /** Time of the first print since the tape was (re)started: how far back its data reaches. */
+  private first: number | null = null;
+
+  get startedAt(): number | null {
+    return this.first;
+  }
+
+  add(trade: Trade): void {
+    const index = SOURCE_INDEX.get(trade.source);
+    if (index === undefined) return;
+    const side = trade.side === "BUY" ? "buy" : "sell";
+    this.session[side][index] += trade.usd;
+    for (const s of this.series) s.add(trade.time, side, index, trade.usd);
+    if (this.first === null || trade.time < this.first) this.first = trade.time;
+  }
+
+  /** Visible notional since `sinceMs` (null = the whole session), at the finest resolution that reaches back that far. */
+  measure(sinceMs: number | null, hidden: ReadonlySet<SourceId>, now = Date.now()): Pressure {
+    if (sinceMs === null) return sum(this.session, hidden);
+    const series = this.series.find((s) => now - sinceMs <= s.spanMs) ?? this.series[this.series.length - 1];
+    return series.measure(sinceMs, hidden);
+  }
+
+  clear(): void {
+    for (const s of this.series) s.clear();
+    this.session = newTotals();
+    this.first = null;
+  }
+}
+
+function sum(totals: Totals, hidden: ReadonlySet<SourceId>): Pressure {
   let buyUsd = 0;
   let sellUsd = 0;
   ALL_SOURCES.forEach((source, i) => {

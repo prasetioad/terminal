@@ -15,7 +15,7 @@ import {
 } from "lightweight-charts";
 import { BubblesPrimitive, type DrawnBubble } from "./BubblesPrimitive";
 import { IndicatorLegendRow, type LegendRow } from "./IndicatorLegend";
-import { localCrosshairTime, localTickMark } from "./timeFormat";
+import { timeFormatsFor } from "./timeFormat";
 import VenueTag from "../VenueTag";
 import type { DrawingController } from "@/lib/drawings/controller";
 import type { FlowStore } from "@/lib/flow";
@@ -117,7 +117,7 @@ function createPriceChart(container: HTMLElement): Omit<ChartApi, "indicators"> 
       attributionLogo: false,
       panes: { separatorColor: "#1E2631", separatorHoverColor: "rgba(0, 229, 255, 0.25)", enableResize: true },
     },
-    localization: { timeFormatter: localCrosshairTime },
+    localization: { timeFormatter: timeFormatsFor(60_000).timeFormatter }, // set per timeframe below
     grid: {
       vertLines: { color: "rgba(42, 52, 68, 0.35)" },
       horzLines: { color: "rgba(42, 52, 68, 0.35)" },
@@ -130,11 +130,9 @@ function createPriceChart(container: HTMLElement): Omit<ChartApi, "indicators"> 
     rightPriceScale: { borderColor: "#1E2631", scaleMargins: { top: 0.08, bottom: 0.22 } },
     timeScale: {
       borderColor: "#1E2631",
-      timeVisible: true,
       secondsVisible: false,
       rightOffset: 8,
       barSpacing: 10,
-      tickMarkFormatter: localTickMark,
     },
   });
 
@@ -182,7 +180,7 @@ export default function PriceChart({
   const containerRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<ChartApi | null>(null);
   const candlesRef = useRef<readonly Candle[]>([]);
-  const envRef = useRef({ intervalMs, precision, flow, heatmap });
+  const envRef = useRef({ intervalMs, precision, minMove, flow, heatmap });
   const [hover, setHover] = useState<DrawnBubble | null>(null);
   const [crosshairIndex, setCrosshairIndex] = useState<number | null>(null);
   const [legendTick, setLegendTick] = useState(0);
@@ -191,8 +189,8 @@ export default function PriceChart({
   useEffect(() => saveJson(LEGEND_COLLAPSED_KEY, legendCollapsed), [legendCollapsed]);
 
   useEffect(() => {
-    envRef.current = { intervalMs, precision, flow, heatmap };
-  }, [intervalMs, precision, flow, heatmap]);
+    envRef.current = { intervalMs, precision, minMove, flow, heatmap };
+  }, [intervalMs, precision, minMove, flow, heatmap]);
 
   const dataFor = useCallback((): IndicatorData => ({ candles: candlesRef.current, ...envRef.current }), []);
 
@@ -233,6 +231,12 @@ export default function PriceChart({
     setLegendTick((t) => t + 1);
   }, [indicators]);
 
+  // Time labels depend on the timeframe (daily bars are labelled by UTC date).
+  useEffect(() => {
+    const { timeFormatter, tickMarkFormatter, timeVisible } = timeFormatsFor(intervalMs);
+    apiRef.current?.chart.applyOptions({ localization: { timeFormatter }, timeScale: { tickMarkFormatter, timeVisible } });
+  }, [intervalMs]);
+
   // Push render settings into the bubble primitive without re-creating anything.
   useEffect(() => {
     const bubbles = apiRef.current?.bubbles;
@@ -263,7 +267,7 @@ export default function PriceChart({
       const data = dataFor();
       api.candles.setData(candles.map(toCandle));
       api.indicators.setData(data);
-      drawings.setData(candles, data.intervalMs, data.precision);
+      drawings.setData(candles, data.intervalMs, data.precision, data.minMove);
       api.bubbles.refresh();
       setHover(null);
     };
@@ -281,7 +285,7 @@ export default function PriceChart({
         for (let i = Math.max(0, fromIndex); i < candles.length; i++) api.candles.update(toCandle(candles[i]));
         const data = dataFor();
         api.indicators.updateBars(data, fromIndex);
-        drawings.setData(candles, data.intervalMs, data.precision);
+        drawings.setData(candles, data.intervalMs, data.precision, data.minMove);
       },
       refreshFlow(fromTime) {
         apiRef.current?.indicators.updateFlow(dataFor(), fromTime);

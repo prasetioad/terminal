@@ -34,6 +34,7 @@ export interface IndicatorData {
   flow: FlowStore; // per-venue taker buy/sell per bar
   heatmap: HeatmapStore; // recorded order-book liquidity
   precision: number; // price decimals of the pair
+  minMove: number; // tick size of the pair
 }
 
 /** What the host gives an indicator instance to put things on the chart. */

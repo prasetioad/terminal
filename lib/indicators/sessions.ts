@@ -1,7 +1,7 @@
 import { CanvasPrimitive, type DrawScope } from "../chart/CanvasPrimitive";
 import { logicalToTime } from "../chart/timeAxis";
 import { formatPrice } from "../format";
-import { SESSIONS, sessionWindows, type SessionId } from "../sessions";
+import { HIDDEN_ON_TIMEFRAME, SESSIONS, sessionWindows, spansEnoughBars, type SessionId } from "../sessions";
 import { firstIndexFrom, xAtTime } from "./common";
 import type { IndicatorData, IndicatorDefinition, IndicatorParams } from "./types";
 
@@ -42,6 +42,7 @@ export const sessionsIndicator: IndicatorDefinition = {
       ctx.font = FONT;
 
       for (const w of sessionWindows(fromMs, toMs, enabled())) {
+        if (!spansEnoughBars(w.end - w.start, d.intervalMs)) continue;
         const x0 = xAtTime(scope, d, w.start);
         const x1 = xAtTime(scope, d, w.end);
         if (x0 === null || x1 === null || x1 < 0 || x0 > width) continue;
@@ -107,9 +108,11 @@ export const sessionsIndicator: IndicatorDefinition = {
         visible = next;
         primitive.refresh();
       },
-      legend() {
+      legend(d) {
         const now = Date.now();
-        const open = sessionWindows(now, now + 1, enabled()).filter((w) => w.start <= now && now < w.end);
+        const today = sessionWindows(now - 86_400_000, now + 86_400_000, enabled());
+        if (today.length && today.every((w) => !spansEnoughBars(w.end - w.start, d.intervalMs))) return [HIDDEN_ON_TIMEFRAME];
+        const open = today.filter((w) => w.start <= now && now < w.end);
         return open.length
           ? open.map((w) => ({ text: `${w.def.name} open`, color: `rgb(${w.def.color})` }))
           : [{ text: "No session open", color: "#64748B" }];

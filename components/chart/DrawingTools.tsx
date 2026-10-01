@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { EyeIcon, EyeOffIcon, TrashIcon } from "../icons";
+import DrawingSettings from "./DrawingSettings";
 import type { DrawingController } from "@/lib/drawings/controller";
-import { PROFILE_LIMITS, isProfileTool } from "@/lib/drawings/profiles";
-import { DRAWING_COLORS, MEASURE_TOOL, TOOLS, type DrawingTool } from "@/lib/drawings/types";
+
+import { DRAWING_COLORS, LINE_WIDTHS, MEASURE_TOOL, TOOLS, type ActiveTool, type DrawingTool, type ToolDef } from "@/lib/drawings/types";
 
 const useDrawingsState = (controller: DrawingController) =>
   useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
@@ -29,7 +30,7 @@ export function DrawingToolbar({ controller }: { controller: DrawingController }
       <ToolButton label="Cursor (Esc)" active={state.tool === null} onClick={() => controller.setTool(null)}>
         <CursorIcon />
       </ToolButton>
-      {TOOLS.map((t) => (
+      {TOOLS.filter((t) => !t.group).map((t) => (
         <ToolButton
           key={t.tool}
           label={`${t.label} (Alt+${t.shortcut})`}
@@ -39,6 +40,16 @@ export function DrawingToolbar({ controller }: { controller: DrawingController }
           <ToolIcon tool={t.tool} />
         </ToolButton>
       ))}
+      <ToolGroup tools={TOOLS.filter((t) => t.group === "position")} active={state.tool} onSelect={(tool) => controller.setTool(tool)} />
+
+      <span className="my-1 h-px w-6 bg-[#1E2631]" />
+
+      <ToolButton label="Undo (Ctrl/⌘+Z)" active={false} disabled={!state.canUndo} onClick={() => controller.undo()}>
+        <UndoIcon />
+      </ToolButton>
+      <ToolButton label="Redo (Ctrl/⌘+Shift+Z)" active={false} disabled={!state.canRedo} onClick={() => controller.redo()}>
+        <UndoIcon redo />
+      </ToolButton>
 
       <span className="my-1 h-px w-6 bg-[#1E2631]" />
 
@@ -76,100 +87,165 @@ export function DrawingToolbar({ controller }: { controller: DrawingController }
   );
 }
 
-/** Floating style bar for the selected drawing. */
+/** Floating style bar for the selected drawing, plus its settings panel if it has settings. */
 export function DrawingInspector({ controller }: { controller: DrawingController }) {
   const state = useDrawingsState(controller);
+  const [settingsFor, setSettingsFor] = useState<string | null>(null);
   if (!state.selectedId) return null;
-  const options = state.selectedOptions;
-  const isProfile = state.selectedTool !== null && isProfileTool(state.selectedTool) && options !== null;
+  const { selectedOptions: options, selectedFields: fields } = state;
+  const hasSettings = fields !== null && options !== null;
+  const settingsOpen = hasSettings && settingsFor === state.selectedId;
   return (
-    <div className="absolute left-1/2 top-12 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-md border border-[#1E2631] bg-[#0D1117]/95 px-2 py-1.5 shadow-xl backdrop-blur">
-      {isProfile && (
-        <>
-          <Stepper
-            label="Rows"
-            value={Number(options.rows)}
-            {...PROFILE_LIMITS.rows}
-            onChange={(v) => controller.setOption("rows", v)}
-          />
-          <Stepper
-            label="VA"
-            suffix="%"
-            value={Number(options.valueArea)}
-            {...PROFILE_LIMITS.valueArea}
-            onChange={(v) => controller.setOption("valueArea", v)}
-          />
+    <>
+      <div className="absolute left-1/2 top-12 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-md border border-[#1E2631] bg-[#0D1117]/95 px-2 py-1.5 shadow-xl backdrop-blur">
+        {hasSettings && (
+          <>
+            <button
+              type="button"
+              aria-pressed={settingsOpen}
+              aria-label="Drawing settings"
+              title="Settings"
+              onClick={() => setSettingsFor(settingsOpen ? null : state.selectedId)}
+              className={`flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px] uppercase ${
+                settingsOpen ? "bg-[#00E5FF]/15 text-[#00E5FF]" : "text-slate-400 hover:bg-[#1E2631] hover:text-slate-100"
+              }`}
+            >
+              <GearIcon /> Settings
+            </button>
+            <span className="mx-1 h-4 w-px bg-[#1E2631]" />
+          </>
+        )}
+        {DRAWING_COLORS.map((c) => (
           <button
+            key={c}
             type="button"
-            aria-pressed={Boolean(options.extend)}
-            title="Extend POC / value area / LVN levels to the right"
-            onClick={() => controller.setOption("extend", !options.extend)}
-            className={`rounded px-1.5 py-0.5 font-mono text-[10px] uppercase ${
-              options.extend ? "bg-[#00E5FF]/15 text-[#00E5FF]" : "text-slate-400 hover:bg-[#1E2631] hover:text-slate-100"
-            }`}
-          >
-            Extend
-          </button>
-          <span className="mx-1 h-4 w-px bg-[#1E2631]" />
-        </>
-      )}
-      {DRAWING_COLORS.map((c) => (
+            aria-label={`Colour ${c}`}
+            aria-pressed={state.selectedColor === c}
+            onClick={() => controller.setColor(c)}
+            className={`h-4 w-4 rounded-full border-2 ${state.selectedColor === c ? "border-white" : "border-transparent"}`}
+            style={{ background: c }}
+          />
+        ))}
+        <span className="mx-1 h-4 w-px bg-[#1E2631]" />
+        <div className="flex items-center gap-0.5" role="group" aria-label="Line width">
+          {LINE_WIDTHS.map((w) => (
+            <button
+              key={w}
+              type="button"
+              title={`Line width ${w}px`}
+              aria-label={`Line width ${w}px`}
+              aria-pressed={state.selectedLineWidth === w}
+              onClick={() => controller.setLineWidth(w)}
+              className={`flex h-5 w-6 items-center justify-center rounded ${
+                state.selectedLineWidth === w ? "bg-[#00E5FF]/15" : "hover:bg-[#1E2631]"
+              }`}
+            >
+              <span
+                className={`block w-4 rounded-full ${state.selectedLineWidth === w ? "bg-[#00E5FF]" : "bg-slate-400"}`}
+                style={{ height: w }}
+              />
+            </button>
+          ))}
+        </div>
+        <span className="mx-1 h-4 w-px bg-[#1E2631]" />
         <button
-          key={c}
           type="button"
-          aria-label={`Colour ${c}`}
-          aria-pressed={state.selectedColor === c}
-          onClick={() => controller.setColor(c)}
-          className={`h-4 w-4 rounded-full border-2 ${state.selectedColor === c ? "border-white" : "border-transparent"}`}
-          style={{ background: c }}
-        />
-      ))}
-      <span className="mx-1 h-4 w-px bg-[#1E2631]" />
-      <button
-        type="button"
-        onClick={() => controller.deleteSelected()}
-        title="Delete (Del)"
-        aria-label="Delete drawing"
-        className="rounded p-0.5 text-slate-400 hover:bg-[#FF2D55]/15 hover:text-[#FF2D55]"
-      >
-        <TrashIcon />
-      </button>
-    </div>
+          onClick={() => controller.deleteSelected()}
+          title="Delete (Del)"
+          aria-label="Delete drawing"
+          className="rounded p-0.5 text-slate-400 hover:bg-[#FF2D55]/15 hover:text-[#FF2D55]"
+        >
+          <TrashIcon />
+        </button>
+      </div>
+      {settingsOpen && (
+        <DrawingSettings fields={fields} values={options} stats={state.selectedStats} onChange={(key, value) => controller.setOption(key, value)} />
+      )}
+    </>
   );
 }
 
-function Stepper({
-  label,
-  suffix = "",
-  value,
-  min,
-  max,
-  step,
-  onChange,
-}: {
-  label: string;
-  suffix?: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  onChange: (value: number) => void;
-}) {
-  const button = "flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-[#1E2631] hover:text-slate-100 disabled:opacity-30";
+/**
+ * Several tools behind one toolbar button, as in TradingView: the button arms the
+ * tool used last; the corner arrow opens the list.
+ */
+function ToolGroup({ tools, active, onSelect }: { tools: readonly ToolDef[]; active: ActiveTool | null; onSelect: (tool: DrawingTool | null) => void }) {
+  const [open, setOpen] = useState(false);
+  const [lastUsed, setLastUsed] = useState(tools[0].tool);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const armed = tools.find((t) => t.tool === active);
+  const current = tools.find((t) => t.tool === (armed?.tool ?? lastUsed)) ?? tools[0];
+
+  // Follow keyboard shortcuts too: the button shows whichever of its tools was armed last.
+  useEffect(() => {
+    if (armed) setLastUsed(armed.tool);
+  }, [armed]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const pick = (tool: DrawingTool) => {
+    setLastUsed(tool);
+    setOpen(false);
+    onSelect(tool);
+  };
+
   return (
-    <span className="flex items-center gap-0.5 font-mono text-[10px] text-slate-400" role="group" aria-label={label}>
-      <span className="mr-0.5 uppercase text-slate-500">{label}</span>
-      <button type="button" className={button} aria-label={`Decrease ${label}`} disabled={value <= min} onClick={() => onChange(Math.max(min, value - step))}>
-        −
+    <div ref={rootRef} className="relative">
+      <ToolButton
+        label={`${current.label} (Alt+${current.shortcut})`}
+        active={armed !== undefined}
+        onClick={() => onSelect(armed ? null : current.tool)}
+      >
+        <ToolIcon tool={current.tool} />
+      </ToolButton>
+      <button
+        type="button"
+        aria-label="More tools"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="absolute bottom-0 right-0 flex h-3 w-3 items-end justify-end rounded-sm text-slate-500 hover:text-slate-100"
+      >
+        <svg width="6" height="6" viewBox="0 0 6 6" aria-hidden>
+          <path d="M6 0v6H0z" fill="currentColor" />
+        </svg>
       </button>
-      <span className="w-8 text-center tabular-nums text-slate-100">
-        {value}
-        {suffix}
-      </span>
-      <button type="button" className={button} aria-label={`Increase ${label}`} disabled={value >= max} onClick={() => onChange(Math.min(max, value + step))}>
-        +
-      </button>
-    </span>
+      {open && (
+        <div
+          role="menu"
+          aria-label="Position tools"
+          className="absolute left-full top-0 z-30 ml-2 min-w-48 rounded-md border border-[#1E2631] bg-[#0D1117] py-1 shadow-2xl shadow-black/60"
+        >
+          {tools.map((t) => (
+            <button
+              key={t.tool}
+              type="button"
+              role="menuitem"
+              onClick={() => pick(t.tool)}
+              className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-xs hover:bg-[#1E2631] ${
+                t.tool === active ? "text-[#00E5FF]" : "text-slate-200"
+              }`}
+            >
+              <ToolIcon tool={t.tool} />
+              <span className="flex-1">{t.label}</span>
+              <span className="font-mono text-[10px] text-slate-500">Alt+{t.shortcut}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -247,6 +323,18 @@ function ToolIcon({ tool }: { tool: DrawingTool }) {
           <path d="M4 3v18M4 6h7M4 10h12M4 14h9M4 18h5" />
         </svg>
       );
+    case "longPosition":
+    case "shortPosition": {
+      const long = tool === "longPosition";
+      return (
+        <svg {...icon}>
+          <rect x="4" y="4" width="16" height="8" rx="1" fill={long ? "rgba(8,153,129,0.35)" : "rgba(242,54,69,0.35)"} stroke="none" />
+          <rect x="4" y="12" width="16" height="8" rx="1" fill={long ? "rgba(242,54,69,0.35)" : "rgba(8,153,129,0.35)"} stroke="none" />
+          <path d="M4 12h16" />
+          <path d={long ? "M9 9l3-3 3 3" : "M9 15l3 3 3-3"} />
+        </svg>
+      );
+    }
     case "flowProfile":
       return (
         <svg {...icon}>
@@ -257,6 +345,18 @@ function ToolIcon({ tool }: { tool: DrawingTool }) {
   }
 }
 
+const UndoIcon = ({ redo = false }: { redo?: boolean }) => (
+  <svg {...icon} style={redo ? { transform: "scaleX(-1)" } : undefined}>
+    <path d="M9 14 4 9l5-5" />
+    <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+  </svg>
+);
+const GearIcon = () => (
+  <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+  </svg>
+);
 const RulerIcon = () => (
   <svg {...icon}>
     <path d="M3 17 17 3l4 4L7 21z" />

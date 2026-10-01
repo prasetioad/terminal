@@ -6,7 +6,7 @@ import SymbolPicker from "./SymbolPicker";
 import type { PairsStatus } from "@/hooks/usePairs";
 import { formatPrice, formatUsdCompact, formatTime } from "@/lib/format";
 import { STORE_FLOOR_USD } from "@/lib/tradeLog";
-import { INTERVALS, type FlowStats, type IntervalKey, type Pair } from "@/lib/types";
+import { INTERVALS, INTERVAL_LABELS, type FlowStats, type IntervalKey, type Pair } from "@/lib/types";
 
 interface ControlPanelProps {
   pairs: Pair[];
@@ -74,19 +74,20 @@ export default function ControlPanel(props: ControlPanelProps) {
           </div>
           <div className="col-span-2 flex flex-col gap-1">
             <span className="label">Timeframe</span>
-            <div className="grid grid-cols-3 overflow-hidden rounded border border-[#1E2631]">
+            <div className="grid grid-cols-6 overflow-hidden rounded border border-[#1E2631]" role="group" aria-label="Timeframe">
               {(Object.keys(INTERVALS) as IntervalKey[]).map((k) => (
                 <button
                   key={k}
                   type="button"
                   onClick={() => props.onIntervalChange(k)}
+                  aria-pressed={props.interval === k}
                   className={`py-1.5 font-mono text-xs transition-colors ${
                     props.interval === k
                       ? "bg-[#00E5FF]/15 text-[#00E5FF]"
                       : "bg-[#0B0E11] text-slate-400 hover:text-slate-200"
                   }`}
                 >
-                  {k}
+                  {INTERVAL_LABELS[k]}
                 </button>
               ))}
             </div>

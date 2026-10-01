@@ -1,7 +1,7 @@
 "use client";
 
 import type { FlowPressure } from "@/hooks/useFlowPressure";
-import { formatUsdCompact } from "@/lib/format";
+import { formatDuration, formatUsdCompact } from "@/lib/format";
 import {
   PRESSURE_RANGES,
   compareFlow,
@@ -69,10 +69,33 @@ export default function PressurePanel({ base, threshold, pressure, range, onRang
         </h2>
         <RangeSelector range={range} onChange={onRangeChange} />
       </div>
+      <Coverage pressure={pressure} range={range} />
       <PressureMeter title="Market pressure" note="All trades" noteHint="Every print, whatever its size" pressure={pressure.market} />
       <PressureMeter title="Large pressure" note={largeNote} noteHint="Big trades only; % vol = their share of all traded volume" pressure={pressure.large} />
       <FlowAlignment comparison={comparison} />
     </section>
+  );
+}
+
+/**
+ * Trades are only seen live: until the page has been open for the whole range (or when
+ * old big trades had to be dropped), say how much the numbers actually cover.
+ */
+function Coverage({ pressure, range }: { pressure: FlowPressure; range: PressureRange }) {
+  if (pressure.complete || pressure.from === null) return null;
+  const rangeMs = PRESSURE_RANGES[range];
+  const since = new Date(pressure.from).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  const text =
+    rangeMs === null
+      ? `Since ${since} · older big trades trimmed`
+      : `Collecting · ${pressure.coveredMs < 60_000 ? "<1m" : formatDuration(pressure.coveredMs)} of ${range} (since ${since})`;
+  return (
+    <p
+      className="px-4 pt-1 font-mono text-[9px] uppercase tracking-wider text-amber-400/80"
+      title="Trades are recorded live from when the pair was opened; this range fills up while the page stays open."
+    >
+      {text}
+    </p>
   );
 }
 

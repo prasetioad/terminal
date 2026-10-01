@@ -69,6 +69,16 @@ export async function fetchTicker24h(symbol: string, signal: AbortSignal): Promi
 /** [openTime, open, high, low, close, volume, closeTime, quoteVolume, trades, takerBuyBaseVolume, …] */
 type RawKline = [number, string, string, string, string, string, number, string, number, string, ...unknown[]];
 
+const toCandle = (k: RawKline): Candle => ({
+  time: Math.floor(k[0] / 1000) as UTCTimestamp,
+  open: parseFloat(k[1]),
+  high: parseFloat(k[2]),
+  low: parseFloat(k[3]),
+  close: parseFloat(k[4]),
+  volume: parseFloat(k[5]),
+  buyVolume: parseFloat(k[9]),
+});
+
 /** Seed the chart with recent history so it isn't empty on load. */
 export async function fetchKlines(
   symbol: string,
@@ -80,15 +90,40 @@ export async function fetchKlines(
     `/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`,
     signal,
   );
-  return rows.map((k) => ({
-    time: Math.floor(k[0] / 1000) as UTCTimestamp,
-    open: parseFloat(k[1]),
-    high: parseFloat(k[2]),
-    low: parseFloat(k[3]),
-    close: parseFloat(k[4]),
-    volume: parseFloat(k[5]),
-    buyVolume: parseFloat(k[9]),
-  }));
+  return rows.map(toCandle);
+}
+
+/** Every Binance kline interval, finest first. */
+export const KLINE_INTERVALS = [
+  ["1m", 60_000],
+  ["3m", 180_000],
+  ["5m", 300_000],
+  ["15m", 900_000],
+  ["30m", 1_800_000],
+  ["1h", 3_600_000],
+  ["2h", 7_200_000],
+  ["4h", 14_400_000],
+  ["6h", 21_600_000],
+  ["12h", 43_200_000],
+  ["1d", 86_400_000],
+] as const;
+
+export type KlineInterval = (typeof KLINE_INTERVALS)[number][0];
+
+/** Spot klines opening in [startMs, endMs] (at most 1000). */
+export async function fetchKlineRange(
+  symbol: string,
+  interval: KlineInterval,
+  startMs: number,
+  endMs: number,
+  signal: AbortSignal,
+): Promise<Candle[]> {
+  const rows = await fetchBinanceJson<RawKline[]>(
+    `/api/v3/klines?symbol=${symbol}&interval=${interval}&startTime=${startMs}&endTime=${endMs}&limit=1000`,
+    signal,
+    10_000,
+  );
+  return rows.map(toCandle);
 }
 
 /**

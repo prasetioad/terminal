@@ -6,18 +6,41 @@ import type { Candle } from "../types";
 import { hitDrawing, isSimpleDrawing, paintDrawing, type Hit, type Point, type Projector } from "./geometry";
 import { measureLines, measureStats, paintMeasure, type Measurement } from "./measure";
 import {
+  hitPosition,
+  isLevelKey,
+  isPositionDrawing,
+  isPositionTool,
+  levelsOf,
+  movePositionHandle,
+  newPosition,
+  paintPosition,
+  positionBox,
+  positionFields,
+  positionSettings,
+  positionStatRows,
+  positionStats,
+  setPositionLevel,
+  type PositionTool,
+} from "./position";
+import {
+  PROFILE_FIELDS,
   hitProfile,
   isProfileDrawing,
+  paintPendingProfile,
   paintProfile,
   profileBox,
-  profileOptions,
+  profileSettings,
+  profileStatRows,
+  rangeOf,
   rangeProfile,
   type ProfileBox,
   type ProfileDrawing,
   type RangeProfile,
 } from "./profiles";
+import { RangeCandleStore, type RangeCandles } from "./rangeData";
 import {
   DRAWING_COLORS,
+  LINE_WIDTHS,
   MEASURE_TOOL,
   TOOLS,
   isDrawingList,
@@ -25,9 +48,14 @@ import {
   type ActiveTool,
   type Anchor,
   type Drawing,
+  type DrawingOptionValue,
   type DrawingOptions,
   type DrawingTool,
   type DrawingsSnapshot,
+  type SettingField,
+  type StatRow,
+  lineWidthOf,
+  toolDef,
 } from "./types";
 
 const STORAGE_PREFIX = "orderflow-terminal:drawings:v1:";
@@ -38,9 +66,15 @@ const DEFAULT_COLOR: Record<DrawingTool, string> = {
   fib: DRAWING_COLORS[5],
   profile: DRAWING_COLORS[2], // POC in red, like TradingView
   flowProfile: DRAWING_COLORS[1],
+  longPosition: DRAWING_COLORS[5], // the entry line; the zones are green / red
+  shortPosition: DRAWING_COLORS[5],
 };
 const CLICK_SLOP_PX = 4; // below this, press-and-release counts as a click
 const MAGNET_PX = 14;
+/** A new position: the stop this far from the entry (target at 2R), lasting POSITION_BARS. */
+const POSITION_STOP_PX = 40;
+const POSITION_BARS = 20;
+const MAX_HISTORY = 100;
 
 interface Attachment {
   chart: IChartApi;
@@ -73,6 +107,8 @@ export class DrawingController {
   private tool: ActiveTool | null = null;
   private measurement: Measurement | null = null;
   private selectedId: string | null = null;
+  /** Drawing under the pointer (positions show their stats on hover, as in TradingView). */
+  private hoveredId: string | null = null;
   private magnet = false;
   private hidden = false;
   private draft: Draft | null = null;
@@ -81,12 +117,24 @@ export class DrawingController {
   private gesture = false;
   private symbol: string | null = null;
 
+  /**
+   * Undo / redo of the current symbol's drawings: each edit pushes the state it
+   * replaced. `committed` is the last recorded state, so in-place changes (a drag
+   * mutates points as it moves) are undone as one step.
+   */
+  private committed: Drawing[] = [];
+  private undoStack: Drawing[][] = [];
+  private redoStack: Drawing[][] = [];
+
   private candles: readonly Candle[] = [];
   private intervalMs = 60_000;
   private precision = 2;
+  private minMove = 0.01;
   private attachment: Attachment | null = null;
   private readonly primitive = new CanvasPrimitive((scope) => this.paint(scope), "top");
 
+  /** Klines behind range profiles (their own resolution, independent of the chart's). */
+  private readonly rangeData = new RangeCandleStore(() => this.publish()); // new data: repaint, refresh the inspector
   /** Range profiles by drawing id, recomputed only when their inputs change. */
   private profileCache = new Map<string, { key: string; profile: RangeProfile | null }>();
 
@@ -120,19 +168,30 @@ export class DrawingController {
     this.drag = null;
   }
 
-  setData(candles: readonly Candle[], intervalMs: number, precision: number): void {
-    if (candles !== this.candles) this.profileCache.clear(); // new dataset
+  setData(candles: readonly Candle[], intervalMs: number, precision: number, minMove: number): void {
     this.candles = candles;
     this.intervalMs = intervalMs;
     this.precision = precision;
-    this.primitive.refresh();
+    this.minMove = minMove;
+    // A selected position's figures follow the price.
+    const selected = this.selected();
+    if (selected && isPositionDrawing(selected) && JSON.stringify(this.statsOf(selected)) !== JSON.stringify(this.snapshot.selectedStats)) {
+      this.publish();
+    } else {
+      this.primitive.refresh();
+    }
   }
 
   /** Switch to another symbol's drawings. */
   setSymbol(symbol: string): void {
     if (symbol === this.symbol) return;
     this.symbol = symbol;
+    this.rangeData.setSymbol(symbol);
+    this.profileCache.clear();
     this.drawings = loadJson(STORAGE_PREFIX + symbol, isDrawingList) ?? [];
+    this.committed = structuredClone(this.drawings);
+    this.undoStack = [];
+    this.redoStack = [];
     this.selectedId = null;
     this.measurement = null;
     this.draft = null;
@@ -172,15 +231,28 @@ export class DrawingController {
 
   setColor(color: string): void {
     const d = this.selected();
-    if (!d) return;
+    if (!d || d.color === color) return;
     d.color = color;
     this.changed(true);
   }
 
-  /** Set a tool-specific option (e.g. a profile's rows) on the selected drawing. */
-  setOption(key: string, value: number | boolean): void {
+  setLineWidth(width: number): void {
     const d = this.selected();
-    if (!d) return;
+    if (!d || !LINE_WIDTHS.some((w) => w === width) || lineWidthOf(d) === width) return;
+    d.lineWidth = width;
+    this.changed(true);
+  }
+
+  /** Set a setting of the selected drawing: a tool option (e.g. a profile's rows) or a position's level. */
+  setOption(key: string, value: DrawingOptionValue): void {
+    const d = this.selected();
+    if (d && isPositionDrawing(d) && isLevelKey(key)) {
+      if (typeof value !== "number" || !(value > 0) || value === levelsOf(d)[key]) return;
+      d.points = this.onTicks(setPositionLevel(d, key, value, this.minMove, this.intervalMs));
+      this.changed(true);
+      return;
+    }
+    if (!d || d.options?.[key] === value) return;
     d.options = { ...d.options, [key]: value };
     this.changed(true);
   }
@@ -193,10 +265,35 @@ export class DrawingController {
   }
 
   clearAll(): void {
+    if (this.drawings.length === 0) return;
     this.drawings = [];
     this.selectedId = null;
     this.draft = null;
     this.changed(true);
+  }
+
+  undo(): void {
+    this.restore(this.undoStack, this.redoStack);
+  }
+
+  redo(): void {
+    this.restore(this.redoStack, this.undoStack);
+  }
+
+  /** Step through history: bring back the newest state of `from`, keeping the current one in `to`. */
+  private restore(from: Drawing[][], to: Drawing[][]): void {
+    // An unfinished placement or drag is abandoned rather than recorded.
+    this.draft = null;
+    this.drag = null;
+    const state = from.pop();
+    if (state) {
+      to.push(this.committed);
+      this.committed = state;
+      this.drawings = structuredClone(state);
+      if (!this.drawings.some((d) => d.id === this.selectedId)) this.selectedId = null;
+      this.persist();
+    }
+    this.changed();
   }
 
   /* ─────────────────────────── coordinates ─────────────────────────── */
@@ -294,11 +391,13 @@ export class DrawingController {
       const drawing: Drawing = {
         id: crypto.randomUUID(),
         tool,
-        points: Array.from({ length: pointsFor(tool) }, () => ({ ...hit.anchor })),
+        points: isPositionTool(tool)
+          ? this.newPositionPoints(tool, hit.anchor, hit.logical, p)
+          : Array.from({ length: pointsFor(tool) }, () => ({ ...hit.anchor })),
         color: DEFAULT_COLOR[tool],
       };
       this.draft = { drawing, start: p, awaitingSecondClick: false };
-      if (pointsFor(tool) === 1) this.commitDraft();
+      if (toolDef(tool).place === "click") this.commitDraft();
       else this.primitive.refresh();
       return;
     }
@@ -350,6 +449,10 @@ export class DrawingController {
     // Hover feedback only.
     const inside = this.pointInPricePane(e);
     const hover = inside && !this.hidden ? this.hitAt(inside.x, inside.y) : null;
+    if ((hover?.id ?? null) !== this.hoveredId) {
+      this.hoveredId = hover?.id ?? null;
+      this.primitive.refresh();
+    }
     const crosshair = inside && (this.tool || e.shiftKey);
     a.container.style.cursor = crosshair ? "crosshair" : hover ? (hover.handle !== null ? "grab" : "move") : "";
   };
@@ -386,6 +489,16 @@ export class DrawingController {
         this.changed();
       }
       return;
+    }
+    if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+      // Ctrl/⌘+Z undo; Ctrl/⌘+Shift+Z or Ctrl/⌘+Y redo.
+      const key = e.key.toLowerCase();
+      if (key === "z" || (key === "y" && !e.shiftKey)) {
+        e.preventDefault();
+        if (key === "y" || e.shiftKey) this.redo();
+        else this.undo();
+        return;
+      }
     }
     if ((e.key === "Delete" || e.key === "Backspace") && this.selectedId) {
       e.preventDefault();
@@ -464,20 +577,46 @@ export class DrawingController {
     if (drag.handle !== null) {
       const hit = this.anchorAt(p, true);
       if (!hit) return;
-      d.points[drag.handle] = hit.anchor;
+      if (isPositionDrawing(d)) {
+        d.points = this.onTicks(movePositionHandle(d, drag.handle, hit.anchor, this.minMove, this.intervalMs));
+      } else {
+        d.points[drag.handle] = hit.anchor;
+      }
     } else {
       const at = this.anchorAt(p, false);
       if (!at) return;
       const dLogical = at.logical - drag.start.logical;
       const dPrice = at.anchor.price - drag.start.price;
-      d.points = drag.origin.map((o) => {
+      const moved = drag.origin.map((o) => {
         const logical = timeToLogical(this.candles, this.intervalMs, o.time);
         const time = logical === null ? null : logicalToTime(this.candles, this.intervalMs, logical + dLogical);
         return { time: time ?? o.time, price: o.price + dPrice };
       });
+      d.points = isPositionDrawing(d) ? this.onTicks(moved) : moved;
     }
     drag.moved = true;
     this.primitive.refresh();
+  }
+
+  /* ───────────────────────────── positions ───────────────────────────── */
+
+  private toTick(price: number): number {
+    const decimals = Math.max(0, this.precision);
+    return Number((Math.round(price / this.minMove) * this.minMove).toFixed(decimals));
+  }
+
+  /** Position prices sit on the pair's tick grid (and carry no float noise). */
+  private onTicks(points: Anchor[]): Anchor[] {
+    return points.map((a) => ({ ...a, price: this.toTick(a.price) }));
+  }
+
+  /** Entry at the click (on a tick), stop POSITION_STOP_PX away, POSITION_BARS long. */
+  private newPositionPoints(tool: PositionTool, at: Anchor, logical: number, p: Point): Anchor[] {
+    const entry = this.toTick(at.price);
+    const away = this.attachment?.series.coordinateToPrice(p.y + POSITION_STOP_PX);
+    const risk = Math.max(this.minMove, this.toTick(Math.abs(entry - (away ?? entry * 0.99))));
+    const end = logicalToTime(this.candles, this.intervalMs, logical + POSITION_BARS) ?? at.time + POSITION_BARS * this.intervalMs;
+    return this.onTicks(newPosition(tool, { time: at.time, price: entry }, risk, end - at.time));
   }
 
   /* ───────────────────────────── measure ───────────────────────────── */
@@ -513,20 +652,20 @@ export class DrawingController {
 
   /* ───────────────────── range profiles & hit testing ───────────────────── */
 
-  private rangeProfileOf(d: ProfileDrawing): RangeProfile | null {
-    const last = this.candles[this.candles.length - 1];
-    const opts = profileOptions(d);
-    const key = `${d.points[0].time}|${d.points[1].time}|${this.candles.length}|${last?.close}|${last?.volume}|${opts.rows}|${opts.valueArea}`;
+  /** The range's data (loading it if needed) and its profile, rebuilt only when an input changed. */
+  private rangeProfileOf(d: ProfileDrawing): { data: RangeCandles; profile: RangeProfile | null } {
+    const [from, to] = rangeOf(d);
+    const data = this.rangeData.get(from, to);
+    const key = `${from}|${to}|${data.status}|${this.rangeData.version}|${this.minMove}|${JSON.stringify(profileSettings(d))}`;
     const hit = this.profileCache.get(d.id);
-    if (hit?.key === key) return hit.profile;
-    const profile = rangeProfile(this.candles, d);
+    if (hit?.key === key) return { data, profile: hit.profile };
+    const profile = rangeProfile(data, d, this.minMove);
     this.profileCache.set(d.id, { key, profile });
-    return profile;
+    return { data, profile };
   }
 
   private boxOf(d: ProfileDrawing, proj: Projector): ProfileBox | null {
-    const rp = this.rangeProfileOf(d);
-    return rp ? profileBox(d, rp, proj) : null;
+    return profileBox(d, this.rangeProfileOf(d).profile, proj);
   }
 
   /** Top-most drawing under (x, y); the selected drawing's handles win over everything. */
@@ -534,6 +673,10 @@ export class DrawingController {
     const proj = this.projectorFor();
     const test = (d: Drawing, withHandles: boolean) => {
       if (isSimpleDrawing(d)) return hitDrawing(d, proj, x, y, withHandles);
+      if (isPositionDrawing(d)) {
+        const box = positionBox(d, proj);
+        return box ? hitPosition(box, x, y, withHandles) : null;
+      }
       if (!isProfileDrawing(d)) return null;
       const box = this.boxOf(d, proj);
       return box ? hitProfile(box, x, y, withHandles) : null;
@@ -554,12 +697,34 @@ export class DrawingController {
       paintDrawing(scope.ctx, d, proj, selected, this.precision);
       return;
     }
+    if (isPositionDrawing(d)) {
+      const box = positionBox(d, proj);
+      if (!box) return;
+      const series = this.attachment?.series;
+      const timeScale = this.attachment?.chart.timeScale();
+      const show = positionSettings(d).alwaysStats || selected || d.id === this.hoveredId;
+      paintPosition(scope.ctx, d, box, positionStats(d, this.candles), show, selected, {
+        precision: this.precision,
+        base: this.baseAsset(),
+        xAt: (ms) => {
+          const logical = timeToLogical(this.candles, this.intervalMs, ms);
+          return logical === null || !timeScale ? null : logicalToX(timeScale, logical);
+        },
+        yAt: (price) => series?.priceToCoordinate(price) ?? null,
+      });
+      return;
+    }
     if (!isProfileDrawing(d)) return;
-    const rp = this.rangeProfileOf(d);
-    const box = rp && profileBox(d, rp, proj);
-    if (!rp || !box) return;
-    const base = this.symbol?.replace(/USDT$/, "") ?? "";
-    paintProfile(scope.ctx, d, rp, box, selected, {
+    const { data, profile } = this.rangeProfileOf(d);
+    const box = profileBox(d, profile, proj);
+    if (!box) return;
+    if (!profile) {
+      const note = data.status === "loading" ? "Loading volume…" : data.status === "error" ? "Volume data unavailable" : "No trades in range";
+      paintPendingProfile(scope.ctx, d, box, note, selected);
+      return;
+    }
+    const base = this.baseAsset();
+    paintProfile(scope.ctx, d, profile, box, selected, {
       paneWidth: scope.width,
       precision: this.precision,
       base,
@@ -591,9 +756,33 @@ export class DrawingController {
     return this.drawings.find((d) => d.id === this.selectedId);
   }
 
-  /** Effective options (defaults filled in), for the inspector. */
+  private baseAsset(): string {
+    return this.symbol?.replace(/USDT$/, "") ?? "";
+  }
+
+  /** Effective settings (defaults filled in; a position's levels included), for the inspector. */
   private optionsOf(d: Drawing): DrawingOptions | null {
-    return isProfileDrawing(d) ? { ...profileOptions(d) } : (d.options ?? null);
+    if (isProfileDrawing(d)) return { ...profileSettings(d) };
+    if (isPositionDrawing(d)) {
+      const { entry, target, stop } = levelsOf(d);
+      return { ...positionSettings(d), entry, target, stop };
+    }
+    return d.options ?? null;
+  }
+
+  private fieldsOf(d: Drawing): readonly SettingField[] | null {
+    if (isProfileDrawing(d)) return PROFILE_FIELDS[d.tool];
+    if (isPositionDrawing(d)) return positionFields(this.minMove);
+    return null;
+  }
+
+  private statsOf(d: Drawing): StatRow[] | null {
+    if (isProfileDrawing(d)) {
+      const rp = this.rangeProfileOf(d).profile;
+      return rp ? profileStatRows(rp, this.precision) : null;
+    }
+    if (isPositionDrawing(d)) return positionStatRows(positionStats(d, this.candles), this.baseAsset(), positionSettings(d));
+    return null;
   }
 
   private buildSnapshot(): DrawingsSnapshot {
@@ -603,20 +792,45 @@ export class DrawingController {
       selectedId: this.selectedId,
       selectedTool: selected?.tool ?? null,
       selectedColor: selected?.color ?? null,
+      selectedLineWidth: selected ? lineWidthOf(selected) : null,
       selectedOptions: selected ? this.optionsOf(selected) : null,
+      selectedFields: selected ? this.fieldsOf(selected) : null,
+      selectedStats: selected ? this.statsOf(selected) : null,
       magnet: this.magnet,
       hidden: this.hidden,
       count: this.drawings.length,
+      canUndo: this.undoStack.length > 0,
+      canRedo: this.redoStack.length > 0,
     };
   }
 
-  /** Publish a new snapshot, repaint, and persist when the drawings themselves changed. */
-  private changed(persist = false): void {
-    if (persist && this.symbol) saveJson(STORAGE_PREFIX + this.symbol, this.drawings);
+  /**
+   * Publish a new snapshot and repaint. `edit`: the drawings themselves changed by a
+   * user action, so the change is recorded for undo and saved.
+   */
+  private changed(edit = false): void {
+    if (edit) this.recordEdit();
     this.syncChartInteraction();
     if (this.attachment && !this.tool && !this.drag) this.attachment.container.style.cursor = "";
+    this.publish();
+  }
+
+  /** New snapshot for React and a repaint; no side effects on the pointer or the chart. */
+  private publish(): void {
     this.snapshot = this.buildSnapshot();
     this.primitive.refresh();
     for (const listener of this.listeners) listener();
+  }
+
+  private recordEdit(): void {
+    this.undoStack.push(this.committed);
+    if (this.undoStack.length > MAX_HISTORY) this.undoStack.shift();
+    this.redoStack = [];
+    this.committed = structuredClone(this.drawings);
+    this.persist();
+  }
+
+  private persist(): void {
+    if (this.symbol) saveJson(STORAGE_PREFIX + this.symbol, this.drawings);
   }
 }

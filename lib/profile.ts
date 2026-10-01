@@ -2,7 +2,8 @@ import type { Candle } from "./types";
 
 export interface ProfileRow {
   low: number; // price at the row's lower edge
-  buy: number; // base units
+  /** Base units. Taker buy / sell, or up-bar / down-bar volume with `split: "direction"`. */
+  buy: number;
   sell: number;
 }
 
@@ -24,6 +25,16 @@ export interface LowVolumeNode {
 
 export interface ProfileOptions {
   rows: number;
+  /**
+   * Fixed price height per row (e.g. ticks × tick size) instead of a row count; rows
+   * then sit on multiples of it, like TradingView's "Ticks per row". Capped at MAX_ROWS.
+   */
+  rowSize?: number;
+  /**
+   * How a bar's volume splits in two: by its taker-buy share (default), or entirely to
+   * "up" or "down" by the bar's direction (close vs open), as TradingView does.
+   */
+  split?: "taker" | "direction";
   valueAreaPct: number; // e.g. 70
   /** A local minimum below this share of the POC volume counts as a low volume node. */
   lvnRatio: number; // e.g. 0.35
@@ -31,10 +42,18 @@ export interface ProfileOptions {
 
 const total = (r: ProfileRow) => r.buy + r.sell;
 
+export const MAX_ROWS = 1_000;
+
+/** Share of a bar's volume that goes to `buy`. */
+function buyShareOf(c: Candle, split: ProfileOptions["split"]): number {
+  if (split === "direction") return c.close > c.open ? 1 : c.close < c.open ? 0 : 0.5;
+  return Math.min(1, Math.max(0, c.buyVolume / c.volume));
+}
+
 /**
  * Volume at price from OHLCV bars. Each bar's volume is spread evenly over its
- * high–low range (the usual approximation when individual prints aren't stored),
- * split into buy/sell by the bar's taker-buy share.
+ * high–low range (the usual approximation when individual prints aren't stored) and
+ * split in two per `opts.split`.
  */
 export function buildProfile(candles: readonly Candle[], from: number, to: number, opts: ProfileOptions): VolumeProfile | null {
   const start = Math.max(0, from);
@@ -49,15 +68,27 @@ export function buildProfile(candles: readonly Candle[], from: number, to: numbe
   }
   if (!(hi > lo)) return null;
 
-  const count = Math.max(4, Math.round(opts.rows));
-  const rowSize = (hi - lo) / count;
+  let count: number;
+  let rowSize: number;
+  if (opts.rowSize !== undefined && opts.rowSize > 0) {
+    rowSize = opts.rowSize;
+    lo = Math.floor(lo / rowSize) * rowSize;
+    count = Math.max(1, Math.ceil((hi - lo) / rowSize - 1e-9));
+    if (count > MAX_ROWS) {
+      rowSize = (hi - lo) / MAX_ROWS;
+      count = MAX_ROWS;
+    }
+  } else {
+    count = Math.min(MAX_ROWS, Math.max(1, Math.round(opts.rows)));
+    rowSize = (hi - lo) / count;
+  }
   const rows: ProfileRow[] = Array.from({ length: count }, (_, i) => ({ low: lo + i * rowSize, buy: 0, sell: 0 }));
   const rowOf = (price: number) => Math.min(count - 1, Math.max(0, Math.floor((price - lo) / rowSize)));
 
   for (let i = start; i <= end; i++) {
     const c = candles[i];
     if (c.volume <= 0) continue;
-    const buyShare = Math.min(1, Math.max(0, c.buyVolume / c.volume));
+    const buyShare = buyShareOf(c, opts.split);
     const first = rowOf(c.low);
     const last = rowOf(c.high);
     if (first === last) {

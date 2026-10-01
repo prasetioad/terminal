@@ -1,5 +1,5 @@
 import { barIndexAt, timeToLogical } from "../chart/timeAxis";
-import { formatPrice, formatSigned } from "../format";
+import { formatDuration, formatPrice, formatSigned } from "../format";
 import type { Candle } from "../types";
 import type { Point, Projector } from "./geometry";
 import type { Anchor } from "./types";
@@ -48,18 +48,6 @@ export function measureStats(candles: readonly Candle[], intervalMs: number, fro
     volume,
     delta,
   };
-}
-
-/** "2d 3h", "1h 05m", "27m", "45s" (sign dropped). */
-export function formatDuration(ms: number): string {
-  const s = Math.round(Math.abs(ms) / 1000);
-  const d = Math.floor(s / 86_400);
-  const h = Math.floor((s % 86_400) / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  if (d > 0) return `${d}d ${h}h`;
-  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
-  if (m > 0) return `${m}m`;
-  return `${s}s`;
 }
 
 const UP = "0, 255, 163";

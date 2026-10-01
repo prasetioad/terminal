@@ -37,6 +37,13 @@ export interface FlowSummary {
  */
 export class TradeLog {
   readonly trades: Trade[] = [];
+  /** Trades older than this were dropped to bound memory (−∞ while nothing has been). */
+  private dropped = Number.NEGATIVE_INFINITY;
+
+  /** How far back the log is complete. */
+  get completeFrom(): number {
+    return this.dropped;
+  }
 
   /** Records the trade if it clears the storage floor. Returns whether it was kept. */
   add(trade: Trade): boolean {
@@ -48,12 +55,14 @@ export class TradeLog {
     this.trades.splice(i, 0, trade);
     if (this.trades.length > MAX_TRADES + TRIM_SLACK) {
       this.trades.splice(0, this.trades.length - MAX_TRADES);
+      this.dropped = this.trades[0].time;
     }
     return true;
   }
 
   clear(): void {
     this.trades.length = 0;
+    this.dropped = Number.NEGATIVE_INFINITY;
   }
 
   /** One backwards pass: newest-first feed rows plus session stats for visible trades. */
