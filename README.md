@@ -42,8 +42,19 @@ so daily bars are labelled by their UTC date).
 - **Indicators** (`ƒx Indicators`): Volume, Delta, Cumulative Volume Delta, Volume Profile
   (visible range or per day/session — POC, VAH/VAL, LVN zones), VWAP (day/week/session anchor,
   σ bands), Sessions (Asia/London/New York in local exchange hours, DST-aware; hidden — like
-  per-day / per-session volume profiles — on timeframes where a period spans fewer than 3 bars). Each has a
-  settings dialog; the setup is saved in the browser.
+  per-day / per-session volume profiles — on timeframes where a period spans fewer than 3 bars), and
+  the **MaxFlow+ Ultimate** oscillator (below). Each has a settings dialog; the setup is saved in the
+  browser.
+- **MaxFlow+ Ultimate** (`lib/maxflow.ts` engine, `lib/indicators/maxflow.ts` view) — port of the
+  Pine script "MaxFlow+ Ultimate (5-in-1 Engine)": WaveTrend columns (wt1 yellow, wt2 blue) with
+  ±60 OB/OS limits (±50 in the Scalping preset), money flow (RSI of hlc3 × volume) and a daily
+  VWAP wave as areas, red/green dots on wt1/wt2 crosses beyond the limits. Feature toggles:
+  regular/hidden divergence (wt1 pivots 5/5, marked once confirmed 5 bars later), higher-timeframe
+  bias (background tint + dot filter), ATR-scaled limits, money-flow EMA(20) "POC" line and
+  early-warning dots (any wt1/wt2 cross inside the limits, as `ta.cross` in the script: orange above
+  zero, aqua below). Deviations from Pine: the HTF WaveTrend is built from the chart's own bars
+  (the in-progress HTF bar as it stood at each bar, so nothing repaints), and dots are blocked while
+  the HTF bias is still unknown.
 - Delta/CVD sources: *Binance* (spot/perp, with kline history) or *All venues* (live since load).
 - **Liquidity Heatmap**: resting order-book liquidity over time (bright = walls), the current depth
   right of the live bar, and the largest bid/ask wall + books-in-sync count in the legend.
