@@ -55,6 +55,17 @@ so daily bars are labelled by their UTC date).
   zero, aqua below). Deviations from Pine: the HTF WaveTrend is built from the chart's own bars
   (the in-progress HTF bar as it stood at each bar, so nothing repaints), and dots are blocked while
   the HTF bias is still unknown.
+- **MaxFlow+ OF (experimental)** (`lib/maxflowOF.ts`, `lib/indicators/maxflowOF.ts`) — a clone of
+  MaxFlow+ Ultimate on real orderflow; the original is left untouched (the clone calls its engine).
+  The money-flow area becomes a taker-flow oscillator (100 × EMA(buy − sell) ÷ EMA(volume), spot +
+  perp), and the main dots can be filtered by flow — *spot-led* (default: spot takers net on the
+  signal's side over the last 3 bars), *absorption* (price new extreme, CVD not), *spot + perp
+  flow*, *flow momentum*. Rejected dots show as grey rings; dots sit on the bar they become known
+  (the original plots them one bar early); optional CVD-divergence markers (◆). The legend scores
+  the loaded history: count · win rate · average return after N bars for kept vs rejected dots.
+  Offline test (8 pairs × 5m/15m/1h, last 40 % out-of-sample, before costs): spot-led and absorption
+  improved on the original in 6/6 and 5/6 cells; flow momentum made it worse; nothing reached
+  |t| ≥ 2, so treat it as a research tool, not a proven signal.
 - Delta/CVD sources: *Binance* (spot/perp, with kline history) or *All venues* (live since load).
 - **Liquidity Heatmap**: resting order-book liquidity over time (bright = walls), the current depth
   right of the live bar, and the largest bid/ask wall + books-in-sync count in the legend.

@@ -82,6 +82,20 @@ export class FlowStore {
     return delta;
   }
 
+  /** Summed taker buy and sell of `sources` in one bucket; null if none of them has the bucket. */
+  totals(time: number, sources: readonly SourceId[]): FlowBar | null {
+    let found = false;
+    const sum = { buy: 0, sell: 0 };
+    for (const source of sources) {
+      const bar = this.bySource.get(source)?.get(time);
+      if (!bar) continue;
+      found = true;
+      sum.buy += bar.buy;
+      sum.sell += bar.sell;
+    }
+    return found ? sum : null;
+  }
+
   /** Earliest bucket (seconds) changed since the last call, or null. */
   takeDirtyFrom(): number | null {
     const from = this.dirtyFrom;

@@ -2,6 +2,7 @@ import { cvdIndicator } from "./cvd";
 import { deltaIndicator } from "./delta";
 import { liquidityHeatmapIndicator } from "./heatmap";
 import { maxFlowIndicator } from "./maxflow";
+import { maxFlowOFIndicator } from "./maxflowOF";
 import { sessionsIndicator } from "./sessions";
 import type { IndicatorDefinition } from "./types";
 import { volumeIndicator } from "./volume";
@@ -18,6 +19,7 @@ export const INDICATORS: readonly IndicatorDefinition[] = [
   vwapIndicator,
   sessionsIndicator,
   maxFlowIndicator,
+  maxFlowOFIndicator,
 ];
 
 const BY_TYPE = new Map(INDICATORS.map((d) => [d.type, d]));
