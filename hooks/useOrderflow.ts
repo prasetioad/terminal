@@ -7,6 +7,7 @@ import { fetchKlines, fetchPerpFlowHistory, fetchTicker24h } from "@/lib/binance
 import { CandleAggregator } from "@/lib/candles";
 import { TakerOrderClusterer } from "@/lib/clusterer";
 import { FlowStore } from "@/lib/flow";
+import { FLOW_SELECTIONS } from "@/lib/indicators/common";
 import { PressureTape } from "@/lib/pressure";
 import { streamSpecsFor, type MarketEvent } from "@/lib/streams";
 import { EMPTY_STATS, TradeLog, isVisible, type FlowSummary, type TradeFilter } from "@/lib/tradeLog";
@@ -64,7 +65,7 @@ export function useOrderflow({ pair, interval, filter, chartRef, onBigTrade }: U
   const { symbol } = pair;
   const [candles] = useState(() => new CandleAggregator(INTERVALS[interval]));
   const [log] = useState(() => new TradeLog());
-  const [flow] = useState(() => new FlowStore(INTERVALS[interval]));
+  const [flow] = useState(() => new FlowStore(INTERVALS[interval], FLOW_SELECTIONS));
   const [tape] = useState(() => new PressureTape());
   const [view, setView] = useState<MarketView>(INITIAL_VIEW);
   const [historyStatus, setHistoryStatus] = useState<HistoryStatus>("loading");

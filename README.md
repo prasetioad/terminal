@@ -67,6 +67,11 @@ so daily bars are labelled by their UTC date).
   improved on the original in 6/6 and 5/6 cells; flow momentum made it worse; nothing reached
   |t| ≥ 2, so treat it as a research tool, not a proven signal.
 - Delta/CVD sources: *Binance* (spot/perp, with kline history) or *All venues* (live since load).
+- **Delta candles:** each Delta bar opens at 0 and closes at the bar's delta, with wicks at the
+  highest / lowest the running delta reached inside the bar (`FlowStore` follows every selectable
+  source set print by print). A wick beyond the close = delta pushed back (absorbed); a wick on the
+  other side of zero = that side led before the bar turned. Only bars seen live have wicks — klines
+  carry totals, not the path. *Wicks* in the settings switches back to plain columns.
 - **Liquidity Heatmap**: resting order-book liquidity over time (bright = walls), the current depth
   right of the live bar, and the largest bid/ask wall + books-in-sync count in the legend.
   *All venues* sums the **global book** of 9 sources; *Binance only* is also available.

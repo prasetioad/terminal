@@ -42,14 +42,24 @@ export interface FlowSelection {
  * partial history into it.
  */
 export function selectFlow(params: IndicatorParams, data: IndicatorData): FlowSelection {
-  const market = params.market as "spot" | "perp" | "both";
   const binanceOnly = params.venues === "binance";
-  const sources = ALL_SOURCES.filter((s) => {
+  const sources = flowSources(binanceOnly, params.market as FlowMarket);
+  return { sources, startTime: binanceOnly ? Number.NEGATIVE_INFINITY : data.flow.liveStart };
+}
+
+type FlowMarket = "spot" | "perp" | "both";
+
+function flowSources(binanceOnly: boolean, market: FlowMarket): SourceId[] {
+  return ALL_SOURCES.filter((s) => {
     const { venue, market: m } = splitSource(s);
     return (market === "both" || m === market) && (!binanceOnly || venue === "binance");
   });
-  return { sources, startTime: binanceOnly ? Number.NEGATIVE_INFINITY : data.flow.liveStart };
 }
+
+/** Every source set the flow params can select: the groups whose intrabar delta path is recorded. */
+export const FLOW_SELECTIONS: readonly SourceId[][] = [true, false].flatMap((binanceOnly) =>
+  (["spot", "perp", "both"] as const).map((market) => flowSources(binanceOnly, market)),
+);
 
 export function flowSummary(params: IndicatorParams): string {
   const venues = params.venues === "binance" ? "Binance" : "All venues";
