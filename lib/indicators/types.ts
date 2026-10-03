@@ -93,7 +93,7 @@ export interface IndicatorDefinition {
   type: string;
   name: string;
   description: string;
-  category: "Orderflow" | "Oscillator";
+  category: "Orderflow" | "Oscillator" | "Setups";
   placement: IndicatorPlacement;
   /** Whether live updates of other venues' flow (not only candles) affect it. */
   usesFlow?: boolean;

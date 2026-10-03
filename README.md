@@ -66,6 +66,16 @@ so daily bars are labelled by their UTC date).
   Offline test (8 pairs × 5m/15m/1h, last 40 % out-of-sample, before costs): spot-led and absorption
   improved on the original in 6/6 and 5/6 cells; flow momentum made it worse; nothing reached
   |t| ≥ 2, so treat it as a research tool, not a proven signal.
+- **Setup v1 · MaxFlow+ × Stoch long** (`lib/setups/setupV1.ts`, overlay `lib/indicators/setupV1.ts`) —
+  the first validated setup (research and numbers in `docs/ROADMAP.md`): on 4h, a MaxFlow+ green dot
+  then a Stochastic cross up from below 20 → long at the close, −15% disaster stop, exit at the first
+  red dot. The overlay marks every entry, stop, exit (with its %), the open position and the score.
+  One engine serves the research, the chart, the scanner and (later) the bot.
+- **Scanner** (chart toolbar): Setup v1 on every pair's last closed 4h bar — new entries, exits and
+  open positions, filters for 24h volume and Stochastic preset, browser notifications for new
+  entries; a row opens the pair on 4h with the overlay. Server route `/api/setups/scan`, rescanned
+  once per closed bar; it fetches through `fetchKlinesBulk` (one host, 4 at a time, backs off on the
+  IP's used weight and 429s) so a scan never starves the chart.
 - Delta/CVD sources: *Binance* (spot/perp, with kline history) or *All venues* (live since load).
 - **Delta candles:** each Delta bar opens at 0 and closes at the bar's delta, with wicks at the
   highest / lowest the running delta reached inside the bar (`FlowStore` follows every selectable

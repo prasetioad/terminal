@@ -93,6 +93,40 @@ export async function fetchKlines(
   return rows.map(toCandle);
 }
 
+const MARKET_DATA_HOST = "https://data-api.binance.vision";
+/** Binance allows 6,000 request weight per minute per IP; bulk jobs stay well below it. */
+const BULK_WEIGHT_CEILING = 2_400;
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    const id = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => (clearTimeout(id), reject(signal.reason)), { once: true });
+  });
+
+/**
+ * Klines for bulk jobs (the scanner): the market-data host only, slowing down as the
+ * IP's used weight climbs and waiting out 429s — the chart and the bot share this IP's
+ * rate limit, so a scan must never starve them.
+ */
+export async function fetchKlinesBulk(symbol: string, interval: IntervalKey, limit: number, signal: AbortSignal): Promise<Candle[]> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const res = await fetch(`${MARKET_DATA_HOST}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`, {
+      signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
+      cache: "no-store",
+    });
+    if (res.status === 429 || res.status === 418) {
+      const retryAfter = Number(res.headers.get("retry-after")) || 10;
+      await sleep(Math.min(120, retryAfter) * 1000, signal);
+      continue;
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status} for ${symbol}`);
+    const used = Number(res.headers.get("x-mbx-used-weight-1m")) || 0;
+    const rows = (await res.json()) as RawKline[];
+    if (used > BULK_WEIGHT_CEILING) await sleep(Math.min(30_000, (used - BULK_WEIGHT_CEILING) * 10), signal);
+    return rows.map(toCandle);
+  }
+  throw new Error(`Rate limited fetching ${symbol}`);
+}
+
 /** Every Binance kline interval, finest first. */
 export const KLINE_INTERVALS = [
   ["1m", 60_000],

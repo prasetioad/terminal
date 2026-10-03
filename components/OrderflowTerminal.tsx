@@ -8,16 +8,19 @@ import PriceChart, { type PriceChartHandle } from "./chart/PriceChart";
 import Header from "./Header";
 import ControlPanel from "./ControlPanel";
 import PressurePanel from "./PressurePanel";
+import SetupScanner from "./SetupScanner";
 import TradeFeed from "./TradeFeed";
 import { useAlertSound } from "@/hooks/useAlertSound";
 import { useIndicators } from "@/hooks/useIndicators";
 import { useHeatmapEngine } from "@/hooks/useHeatmapEngine";
 import { useOrderflow } from "@/hooks/useOrderflow";
 import { usePairs } from "@/hooks/usePairs";
+import { useSetupScanner } from "@/hooks/useSetupScanner";
 import { useFlowPressure } from "@/hooks/useFlowPressure";
 import { DrawingController } from "@/lib/drawings/controller";
 import { heatmapSources } from "@/lib/indicators/heatmap";
 import type { PressureRange } from "@/lib/pressure";
+import type { StochPreset } from "@/lib/setups/setupV1";
 import type { TradeFilter } from "@/lib/tradeLog";
 import { INTERVALS, type IntervalKey } from "@/lib/types";
 import type { SourceId } from "@/lib/venues";
@@ -60,6 +63,24 @@ export default function OrderflowTerminal() {
   // Order books stream only while a heatmap indicator needs them.
   const bookSources = useMemo(() => heatmapSources(indicators.configs), [indicators.configs]);
   const heatmap = useHeatmapEngine({ pair, sources: bookSources });
+
+  // Setup v1 scanner over every pair (4h).
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scanStoch, setScanStoch] = useState<StochPreset>("either");
+  const scanner = useSetupScanner(scanStoch);
+  const { acknowledge } = scanner;
+  useEffect(() => {
+    if (scannerOpen) acknowledge();
+  }, [scannerOpen, acknowledge]);
+  const openFromScanner = useCallback(
+    (target: string) => {
+      setSymbol(target);
+      setIntervalKey("4h");
+      if (!indicators.configs.some((c) => c.type === "setup-v1")) indicators.add("setup-v1");
+      setScannerOpen(false);
+    },
+    [indicators],
+  );
 
   // Drawings belong to a symbol and are saved per symbol.
   const [drawings] = useState(() => new DrawingController());
@@ -116,7 +137,14 @@ export default function OrderflowTerminal() {
               heatmap={heatmap}
               indicators={indicators.configs}
               drawings={drawings}
-              toolbar={<ChartToolbar threshold={threshold} onOpenIndicators={() => setPickerOpen(true)} />}
+              toolbar={
+                <ChartToolbar
+                  threshold={threshold}
+                  onOpenIndicators={() => setPickerOpen(true)}
+                  onOpenScanner={() => setScannerOpen(true)}
+                  newSetups={scanner.unseen.length}
+                />
+              }
               onEditIndicator={setEditingUid}
               onToggleIndicator={indicators.toggleVisible}
               onRemoveIndicator={indicators.remove}
@@ -137,6 +165,18 @@ export default function OrderflowTerminal() {
         </div>
       </main>
 
+      {scannerOpen && (
+        <SetupScanner
+          result={scanner.result}
+          status={scanner.status}
+          stoch={scanStoch}
+          onStochChange={setScanStoch}
+          notify={scanner.notify}
+          onToggleNotify={scanner.toggleNotify}
+          onOpen={openFromScanner}
+          onClose={() => setScannerOpen(false)}
+        />
+      )}
       {pickerOpen && <IndicatorPicker active={indicators.configs} onAdd={indicators.add} onClose={closePicker} />}
       {editing && (
         <IndicatorSettings
@@ -151,16 +191,32 @@ export default function OrderflowTerminal() {
   );
 }
 
-/** Top-left of the chart: the indicator picker button and the bubble legend. */
-function ChartToolbar({ threshold, onOpenIndicators }: { threshold: number; onOpenIndicators: () => void }) {
+/** Top-left of the chart: the indicator picker, the setup scanner and the bubble legend. */
+function ChartToolbar({
+  threshold,
+  onOpenIndicators,
+  onOpenScanner,
+  newSetups,
+}: {
+  threshold: number;
+  onOpenIndicators: () => void;
+  onOpenScanner: () => void;
+  newSetups: number;
+}) {
+  const button =
+    "flex items-center gap-1.5 rounded border border-[#1E2631] bg-[#0D1117]/90 px-2.5 py-1 text-xs text-slate-200 backdrop-blur hover:border-[#00E5FF]/50 hover:text-[#00E5FF]";
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <button
-        type="button"
-        onClick={onOpenIndicators}
-        className="flex items-center gap-1.5 rounded border border-[#1E2631] bg-[#0D1117]/90 px-2.5 py-1 text-xs text-slate-200 backdrop-blur hover:border-[#00E5FF]/50 hover:text-[#00E5FF]"
-      >
+      <button type="button" onClick={onOpenIndicators} className={button}>
         <span className="font-serif italic">ƒx</span> Indicators
+      </button>
+      <button type="button" onClick={onOpenScanner} className={button} title="Setup v1 across every pair on 4h">
+        Scanner
+        {newSetups > 0 && (
+          <span className="rounded-full bg-[#00FFA3] px-1.5 font-mono text-[10px] font-bold text-[#0B0E11]" aria-label={`${newSetups} new entries`}>
+            {newSetups}
+          </span>
+        )}
       </button>
       <BubbleLegend threshold={threshold} />
     </div>
