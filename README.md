@@ -76,6 +76,16 @@ so daily bars are labelled by their UTC date).
   entries; a row opens the pair on 4h with the overlay. Server route `/api/setups/scan`, rescanned
   once per closed bar; it fetches through `fetchKlinesBulk` (one host, 4 at a time, backs off on the
   IP's used weight and 429s) so a scan never starves the chart.
+  The chart overlay shows every Setup v1 signal on one pair; the **v1.1 breadth filter** (trade a bar
+  only when ≥ 10 pairs signal at once, liquidity ≥ $1M/day) needs the whole market, so the scanner
+  shows the bar's breadth and the bot applies it.
+- **Bot** (`bot/`, guide in `docs/BOT.md`): runs Setup v1.1 every 4h close — paper (default), Binance
+  Spot testnet or live (double opt-in) — with risk sizing, a −15% stop resting on the exchange,
+  daily loss limit, pause / kill switch, Telegram commands, an API for the chart's **Bot** panel,
+  SQLite journal and Docker deployment. `npm run bot`, `npm run bot:test`, `npm run bot:replay`
+  (runs the bot over history through the live code path; must match the engine trade for trade).
+- **Research Lab** (`research/`): survivorship-free backtests over every Binance USDT pair that ever
+  traded, delisted ones included (`npm run research:setup-v1`).
 - Delta/CVD sources: *Binance* (spot/perp, with kline history) or *All venues* (live since load).
 - **Delta candles:** each Delta bar opens at 0 and closes at the bar's delta, with wicks at the
   highest / lowest the running delta reached inside the bar (`FlowStore` follows every selectable

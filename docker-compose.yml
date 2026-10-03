@@ -1,0 +1,21 @@
+# Bot + web app on one server (docs/BOT.md → "Deploy").  docker compose up -d --build
+services:
+  bot:
+    build: { context: ., dockerfile: bot/Dockerfile }
+    env_file: bot/.env
+    environment:
+      DB_PATH: /app/bot/data/bot.sqlite
+    volumes:
+      - ./bot/data:/app/bot/data
+    restart: unless-stopped
+    stop_grace_period: 2m # the bot finishes a running cycle before it exits
+
+  web:
+    build: { context: ., dockerfile: Dockerfile.web }
+    environment:
+      BOT_API_URL: http://bot:8787
+      BOT_API_TOKEN: ${API_TOKEN:-}
+    ports:
+      - "127.0.0.1:3000:3000" # reach it through an SSH tunnel or a reverse proxy with auth
+    depends_on: [bot]
+    restart: unless-stopped

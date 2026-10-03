@@ -1,0 +1,8 @@
+node_modules
+.next
+.git
+research/.cache
+bot/data
+bot/.env
+.env
+*.log

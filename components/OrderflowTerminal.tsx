@@ -9,6 +9,7 @@ import Header from "./Header";
 import ControlPanel from "./ControlPanel";
 import PressurePanel from "./PressurePanel";
 import SetupScanner from "./SetupScanner";
+import BotPanel from "./BotPanel";
 import TradeFeed from "./TradeFeed";
 import { useAlertSound } from "@/hooks/useAlertSound";
 import { useIndicators } from "@/hooks/useIndicators";
@@ -66,6 +67,7 @@ export default function OrderflowTerminal() {
 
   // Setup v1 scanner over every pair (4h).
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [botOpen, setBotOpen] = useState(false);
   const [scanStoch, setScanStoch] = useState<StochPreset>("either");
   const scanner = useSetupScanner(scanStoch);
   const { acknowledge } = scanner;
@@ -142,6 +144,7 @@ export default function OrderflowTerminal() {
                   threshold={threshold}
                   onOpenIndicators={() => setPickerOpen(true)}
                   onOpenScanner={() => setScannerOpen(true)}
+                  onOpenBot={() => setBotOpen(true)}
                   newSetups={scanner.unseen.length}
                 />
               }
@@ -165,6 +168,7 @@ export default function OrderflowTerminal() {
         </div>
       </main>
 
+      {botOpen && <BotPanel onClose={() => setBotOpen(false)} />}
       {scannerOpen && (
         <SetupScanner
           result={scanner.result}
@@ -196,11 +200,13 @@ function ChartToolbar({
   threshold,
   onOpenIndicators,
   onOpenScanner,
+  onOpenBot,
   newSetups,
 }: {
   threshold: number;
   onOpenIndicators: () => void;
   onOpenScanner: () => void;
+  onOpenBot: () => void;
   newSetups: number;
 }) {
   const button =
@@ -217,6 +223,9 @@ function ChartToolbar({
             {newSetups}
           </span>
         )}
+      </button>
+      <button type="button" onClick={onOpenBot} className={button} title="Setup v1 bot: mode, positions, results">
+        Bot
       </button>
       <BubbleLegend threshold={threshold} />
     </div>

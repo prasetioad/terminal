@@ -1,7 +1,7 @@
 # Roadmap: Orderflow Terminal → Probability Engine → Bot Binance
 
 > Dokumen hidup. Diperbarui setiap tahap selesai atau ada hasil riset baru.
-> Terakhir diperbarui: 2026-10-03 (Tahap 1 selesai).
+> Terakhir diperbarui: 2026-10-03 (Tahap 1–2 selesai; kode Tahap 3–6 selesai, menunggu VPS dan API key).
 
 ## 1. Tujuan
 
@@ -70,6 +70,35 @@ Lalu **bot** yang mengeksekusi setup yang sudah terbukti, otomatis di Binance, d
 - **Peringatan:** semesta 99 pair adalah top 100 hari ini (survivorship bias). Return portofolio harus dianggap **batas atas**.
 - **Konfigurasi v1:** risiko 1% akun per trade (posisi sekitar 6,7% akun dengan stop −15%), maksimal 15 posisi bersamaan.
 
+### 4.5 Uji tanpa survivorship bias → Setup v1.1 (TEMUAN PENTING)
+`npm run research:setup-v1`: **653 pair USDT dari arsip Binance, termasuk yang sudah di-delist**, 2021–2026. Ada 579 pair dengan trade (5.570 trade). Likuiditas diukur pada waktu sinyal (rata-rata volume harian 30 hari).
+
+- **Per trade, sinyalnya nyata:** periode awal +0,72% (t=2,8), periode ujian +1,70% (t=6,7). Koin yang di-delist juga positif (+1,21%).
+- **Tapi portofolio Setup v1 rugi:** −7% sampai −10% per tahun, drawdown −48% sampai −58%.
+- **Penyebab:** keunggulannya datang dari **kapitulasi seluruh pasar**. Rata-rata per trade menurut jumlah pair yang memberi sinyal di bar yang sama:
+
+  | Pair yang memberi sinyal di bar yang sama | Rata-rata per trade |
+  |---|---|
+  | 1 pair (terisolasi) | −0,03% |
+  | 2–4 pair | +0,25% |
+  | 5–14 pair | +0,97% |
+  | 15–39 pair | +2,36% |
+  | 40+ pair | +3,16% |
+
+  Portofolio berkapasitas 15 posisi terisi oleh sinyal terisolasi yang buruk, sehingga tidak ada slot tersisa saat kapitulasi (peluang terbaik) datang.
+- **Setup v1.1 = Setup v1 + filter breadth ≥ 10 pair + likuiditas ≥ $1M/hari.** Ambang breadth dipilih **hanya dari data awal** (10 adalah yang terbaik di sana):
+
+  | v1.1 (likuiditas ≥ $1M, breadth ≥ 10) | Periode awal | Periode ujian |
+  |---|---|---|
+  | Per trade | win 60% · +1,91% (t=4,3) | win 60% · **+3,56%** (t=7,6) · 95% CI [+2,71%, +4,56%] |
+  | Portofolio (paling likuid dulu, ≤ 15 posisi, risiko 1%) | **+12,0%/thn**, DD −25% | **+12,1%/thn**, DD −12% |
+  | Per tahun | 2021 +3,8% · 2022 +2,6% · 2023 +1,4% · 2024 +1,7% · 2025 +6,5% · 2026 −0,1% | |
+  | Masih listing / sudah di-delist | +2,84% / **+2,53%** | |
+
+- **Kejujuran:** efek breadth ditemukan dengan melihat seluruh data. Ambangnya dipilih dari data awal, tapi idenya sendiri sedikit terkontaminasi data ujian. **Paper trading ke depan adalah ujian yang sebenarnya.**
+- **Frekuensi:** bar dengan ≥ 10 sinyal sekaligus hanya terjadi 106 kali dalam 5,8 tahun. Bot banyak diam, lalu bergerak saat pasar kapitulasi.
+- **Catatan:** pada likuiditas ≥ $5M, periode awal lemah (+0,28%). Keunggulan di 2021–2024 lebih banyak di koin menengah. Nanti, perhatikan slippage di koin bervolume ~$1–5M/hari.
+
 ## 5. Roadmap
 
 Setiap tahap punya hasil yang bisa langsung dipakai dan syarat lulus.
@@ -85,38 +114,43 @@ Setiap tahap punya hasil yang bisa langsung dipakai dan syarat lulus.
   - Scan penuh 484 pair sekitar 21 detik, 0 gagal, sekitar 970 weight Binance per scan.
 - **Pelajaran:** batas rate Binance per IP dipakai bersama oleh chart, scanner, dan nanti bot. Scan memakai `fetchKlinesBulk` (satu host, konkurensi 4, membaca `x-mbx-used-weight-1m`, menghormati `Retry-After`). Bot harus punya anggaran weight sendiri (Tahap 5).
 
-### Tahap 2: Research Lab di repo
-- [ ] Pindahkan script riset dari folder sementara ke `research/` supaya bisa dijalankan ulang.
+### Tahap 2: Research Lab di repo ✅ SELESAI (2026-10-03)
+- [x] `research/` (data dari arsip Binance termasuk pair yang di-delist, semesta, backtest Setup v1). Bisa dijalankan ulang: `npm run research:setup-v1`.
 - [x] Uji gabungan Stoch 5,3,3 OR 14,3,3 (lulus, lihat 4.4).
-- [ ] Semesta tanpa survivorship bias: pair yang sudah di-delist (arsip data.binance.vision) dan peringkat per tanggal.
-- [ ] Walk-forward berlapis, bootstrap confidence interval, dan monte carlo drawdown.
-- **Lulus:** Setup v1 tetap positif di semesta tanpa bias.
+- [x] Semesta tanpa survivorship bias dan likuiditas pada waktu sinyal. Hasil: Setup v1 per trade positif, **portofolionya rugi** → **Setup v1.1** (filter breadth) dibuat dan lulus (lihat 4.5).
+- [x] Bootstrap CI 95%. [ ] Walk-forward berlapis dan monte carlo drawdown (lanjutan).
+- **Lulus:** Setup v1.1 positif per trade dan per portofolio di kedua periode, termasuk di koin yang sudah di-delist.
 
-### Tahap 3: Fondasi server (VPS Singapura)
-- [ ] VPS 24/7 (Singapura/Tokyo, dekat exchange, bebas blokir DNS ISP).
+### Tahap 3: Fondasi server (VPS Singapura) ← kode bot siap; menunggu VPS
+- [x] Service bot 24/7 (`bot/`), Docker + `docker-compose.yml`, panduan deploy di [BOT.md](BOT.md) §7.
+- [x] Alert Telegram dan perintah kendali. Panel "Bot" di web app.
+- [ ] VPS 24/7 (Singapura/Tokyo, dekat exchange, bebas blokir DNS ISP). **Butuh: akun VPS darimu.**
 - [ ] Collector: trade semua venue, bar buy/sell, order book untuk Tier A, OI, funding, likuidasi.
 - [ ] Database time-series (ClickHouse), dengan pemantau kualitas data (celah, keterlambatan).
 - [ ] Scanner pindah ke server, alert Telegram.
 - [ ] Web app menjadi tampilan dari server (API + WebSocket).
 - **Lulus:** 2 minggu data tanpa celah besar, alert Telegram tepat waktu.
 
-### Tahap 4: Paper trading (bot tanpa uang)
-- [ ] Engine eksekusi simulasi: entry di close 4h, stop, exit sinyal, fee dan slippage realistis.
-- [ ] Jurnal otomatis: setiap trade dengan konteksnya. Dashboard performa live vs backtest.
-- [ ] Mesin risiko: risiko per trade, maksimal posisi, eksposur per koin/sektor, batas rugi harian dan mingguan.
+### Tahap 4: Paper trading (bot tanpa uang) ← siap dijalankan
+- [x] Engine eksekusi simulasi (`PaperBroker`): entry di close 4h, stop dari bar, exit sinyal, fee 0,1% per sisi + slippage.
+- [x] Replay: bot dijalankan di atas data historis lewat kode yang sama dengan live. **Fidelitas 71/71 trade, 0 selisih.**
+- [x] Jurnal (SQLite: posisi, event, equity) dan dashboard di panel Bot.
+- [x] Mesin risiko: risiko per trade, maksimal posisi, cap per posisi, batas rugi harian, pause/kill switch, filter v1.1. [ ] Eksposur per sektor dan batas rugi mingguan (lanjutan).
+- [ ] **Jalankan paper ≥ 1–3 bulan** (lokal `npm run bot`, atau di VPS).
 - **Lulus:** minimal 1–3 bulan atau ≥ 40 trade. Win rate dan expectancy dalam interval kepercayaan backtest. Tidak ada bug eksekusi.
 
-### Tahap 5: Koneksi Binance, testnet lalu live kecil
-- [ ] **Pilih pasar:** Setup v1 long-only, jadi mulai di **Spot** (tanpa likuidasi dan funding). Futures nanti untuk short dan leverage.
-- [ ] API key: izin trade saja, tanpa withdraw, whitelist IP server, disimpan terenkripsi di server.
-- [ ] Order manager: entry, stop dipasang di exchange (stop-limit / OCO di spot), exit, cek ulang posisi exchange vs internal setiap menit, order idempotent (clientOrderId), retry dan rate limit.
-- [ ] **Binance Testnet** dulu (spot testnet / futures testnet) sampai semua skenario lulus: fill, partial fill, stop, disconnect, restart.
+### Tahap 5: Koneksi Binance, testnet lalu live kecil ← kode siap; menunggu API key testnet
+- [x] **Pasar: Spot** (Setup v1 long-only: tanpa likuidasi dan funding).
+- [x] Order manager (`bot/binance.ts`): market buy, stop dipasang di exchange (STOP_LOSS, atau STOP_LOSS_LIMIT dengan buffer 2%), exit, rekonsiliasi tiap menit, order idempotent (clientOrderId, dicek ulang setelah putus), pembulatan tick/step, fee dalam USDT, sinkronisasi jam server. Teruji dengan HTTP mock (17 unit test).
+- [x] Kunci ganda mode live (`MODE=live` + frasa `LIVE_CONFIRM`). Panduan API key aman di [BOT.md](BOT.md) §5.
+- [ ] **Binance Testnet** sampai semua skenario lulus. **Butuh: API key testnet darimu** (gratis, testnet.binance.vision).
 - [ ] Live dengan modal kecil dan risiko 0,25–0,5% per trade. Naik bertahap kalau metrik tetap sehat.
 - **Lulus:** 1 bulan live tanpa selisih rekonsiliasi, slippage sesuai asumsi.
 
 ### Tahap 6: Operasi dan keamanan bot
-- [ ] Kill switch (manual dan otomatis), batas rugi harian/mingguan, berhenti otomatis kalau data rusak.
-- [ ] Monitoring: health check, alert Telegram saat error, log audit setiap keputusan.
+- [x] Kill switch: `/pause`, `/resume`, `/flatten CONFIRM` (Telegram) dan pause/resume (API/panel). Batas rugi harian. Posisi tanpa stop tidak pernah dibiarkan (entry langsung dibatalkan).
+- [x] Log audit setiap siklus dan keputusan (tabel events). Alert Telegram saat error. Shutdown tidak memotong siklus.
+- [ ] Batas rugi mingguan, berhenti otomatis kalau data rusak, health check eksternal (lanjutan).
 - [ ] Pemantauan pemudaran keunggulan: kalau performa live turun di bawah ambang, setup otomatis dinonaktifkan.
 
 ### Tahap 7: Lapisan data posisi
@@ -164,7 +198,7 @@ Exchange (Binance, Bybit, OKX, Coinbase, KuCoin, Deribit)
 ## 9. Keputusan terbuka
 
 - Provider VPS (rekomendasi: Hetzner/Vultr/DigitalOcean, Singapura).
-- Stoch 5,3,3 vs 14,3,3 vs gabungan (menunggu uji Tahap 2).
+- ~~Stoch 5,3,3 vs 14,3,3 vs gabungan~~ → "either" (lulus kedua periode).
 - Pasar bot pertama: Spot (rekomendasi untuk Setup v1) atau Futures.
 - Saluran alert: Telegram.
 
@@ -172,3 +206,4 @@ Exchange (Binance, Bybit, OKX, Coinbase, KuCoin, Deribit)
 
 - **2026-10-03:** Roadmap dibuat. Setup v1 ditetapkan dari riset 25 dan 99 pair. Mulai Tahap 1.
 - **2026-10-03:** Tahap 1 selesai (engine, overlay, scanner, notifikasi). Uji Stoch gabungan: "either" lulus kedua periode dan dijadikan default. Berikutnya: Tahap 2 (Research Lab di repo, semesta tanpa survivorship bias).
+- **2026-10-03:** Tahap 2 selesai. Uji tanpa survivorship bias (653 pair termasuk yang di-delist) membongkar bahwa keunggulan datang dari kapitulasi seluruh pasar → **Setup v1.1** (breadth ≥ 10, likuiditas ≥ $1M). Kode Tahap 3–6 selesai (bot: paper/testnet/live, risiko, Telegram, API, panel, Docker, replay 71/71). Menunggu: VPS, token Telegram, API key testnet.
