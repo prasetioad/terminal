@@ -4,7 +4,7 @@ import { useState } from "react";
 import Modal from "./Modal";
 import { formatPrice, formatUsdCompact } from "@/lib/format";
 import type { ScanResult, ScanRow, ScanStatus } from "@/lib/server/scanner";
-import type { StochPreset } from "@/lib/setups/setupV1";
+import { SETUP_V1, type StochPreset } from "@/lib/setups/setupV1";
 import type { ScannerStatus } from "@/hooks/useSetupScanner";
 
 interface SetupScannerProps {
@@ -25,11 +25,11 @@ const TABS: readonly { key: ScanStatus | "all"; label: string }[] = [
   { key: "open", label: "Open" },
 ];
 
-const MIN_VOLUME = [
-  { value: 0, label: "Any volume" },
-  { value: 1e6, label: "≥ $1M / 24h" },
-  { value: 1e7, label: "≥ $10M / 24h" },
-  { value: 1e8, label: "≥ $100M / 24h" },
+const MIN_LIQUIDITY = [
+  { value: 0, label: "Any liquidity" },
+  { value: SETUP_V1.minLiquidity30d, label: "≥ $1M/day (v1.1)" },
+  { value: 1e7, label: "≥ $10M/day" },
+  { value: 1e8, label: "≥ $100M/day" },
 ] as const;
 
 const STATUS_STYLE: Record<ScanStatus, { label: string; cls: string }> = {
@@ -44,8 +44,9 @@ const time = (ms: number) => new Date(ms).toLocaleString([], { month: "short", d
 /** Setup v1 across every pair on the last closed 4h bar. */
 export default function SetupScanner({ result, status, stoch, onStochChange, notify, onToggleNotify, onOpen, onClose }: SetupScannerProps) {
   const [tab, setTab] = useState<ScanStatus | "all">("all");
-  const [minVolume, setMinVolume] = useState<number>(1e6);
-  const rows = (result?.rows ?? []).filter((r) => r.volume24h >= minVolume);
+  const [minLiquidity, setMinLiquidity] = useState<number>(SETUP_V1.minLiquidity30d);
+  const rows = (result?.rows ?? []).filter((r) => r.liquidity30d >= minLiquidity);
+  const breadthOk = (result?.breadth ?? 0) >= SETUP_V1.minBreadth;
   const count = (key: ScanStatus | "all") => (key === "all" ? rows.length : rows.filter((r) => r.status === key).length);
   const shown = tab === "all" ? rows : rows.filter((r) => r.status === tab);
 
@@ -68,12 +69,12 @@ export default function SetupScanner({ result, status, stoch, onStochChange, not
             ))}
           </div>
           <select
-            aria-label="Minimum 24h volume"
-            value={minVolume}
-            onChange={(e) => setMinVolume(Number(e.target.value))}
+            aria-label="Minimum 30-day liquidity"
+            value={minLiquidity}
+            onChange={(e) => setMinLiquidity(Number(e.target.value))}
             className="rounded border border-[#1E2631] bg-[#0B0E11] px-2 py-1 font-mono text-[11px] text-slate-200"
           >
-            {MIN_VOLUME.map((o) => (
+            {MIN_LIQUIDITY.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
               </option>
@@ -99,6 +100,19 @@ export default function SetupScanner({ result, status, stoch, onStochChange, not
           </button>
         </div>
 
+        {result && (
+          <div
+            role="status"
+            aria-label="Breadth"
+            className={`rounded border px-3 py-2 text-[11px] leading-relaxed ${breadthOk ? "border-[#00FFA3]/40 bg-[#00FFA3]/5 text-[#00FFA3]" : "border-[#1E2631] text-slate-400"}`}
+          >
+            <span className="font-semibold">Breadth {result.breadth}</span> — pairs with a new entry on this bar.{" "}
+            {breadthOk
+              ? `Market-wide capitulation: Setup v1.1 takes these entries (most liquid first).`
+              : `Setup v1.1 trades only when ≥ ${SETUP_V1.minBreadth} pairs signal at once — isolated signals averaged ~0% on the full, survivorship-free universe.`}
+          </div>
+        )}
+
         <div className="max-h-[55vh] overflow-auto rounded border border-[#1E2631]">
           <table className="w-full border-collapse font-mono text-[11px] tabular-nums">
             <thead className="sticky top-0 bg-[#0D1117] text-[10px] uppercase tracking-wider text-slate-500">
@@ -110,7 +124,7 @@ export default function SetupScanner({ result, status, stoch, onStochChange, not
                 <th className="px-2 py-2 text-right font-medium">Last</th>
                 <th className="px-2 py-2 text-right font-medium">P&amp;L</th>
                 <th className="px-2 py-2 text-right font-medium">Bars</th>
-                <th className="px-2 py-2 text-right font-medium">24h vol</th>
+                <th className="px-2 py-2 text-right font-medium" title="Trailing 30-day average daily quote volume">Liquidity/day</th>
                 <th className="px-3 py-2 text-right font-medium" title="This setup on this pair over the scanned window (~47 days of 4h bars)">
                   Pair record
                 </th>
@@ -135,8 +149,9 @@ export default function SetupScanner({ result, status, stoch, onStochChange, not
           {result
             ? `Bar ${time(result.barTime)} → ${time(result.barTime + 4 * 3_600_000)} · ${result.pairs} pairs scanned${result.failed ? ` (${result.failed} failed)` : ""} · rescans after every 4h close. `
             : ""}
-          Rules: green dot, then Stochastic crosses up from below 20 → long at the 4h close; stop −15%; exit at the first red dot. Backtest (99 pairs, 2021–2026): ~59% wins, about +1–2% per trade
-          out-of-sample — with survivorship bias; not financial advice. Size by risk (1% of the account ≈ 6.7% position with a −15% stop).
+          Rules (v1.1): green dot, then Stochastic crosses up from below 20 → long at the 4h close, only on bars where ≥ {SETUP_V1.minBreadth} pairs signal and the pair trades ≥ $1M/day; stop
+          −15%; exit at the first red dot. Survivorship-free backtest (579 pairs incl. delisted, 2021–2026): ~60% wins, +1.9% / +3.6% per trade in- / out-of-sample. Not financial
+          advice; size by risk (1% of the account ≈ 6.7% position with a −15% stop).
         </p>
       </div>
     </Modal>
@@ -162,7 +177,7 @@ function Row({ row: r, onOpen }: { row: ScanRow; onOpen: (symbol: string) => voi
       <td className="px-2 py-1.5 text-right text-slate-300">{formatPrice(r.lastPrice, r.precision)}</td>
       <td className={`px-2 py-1.5 text-right ${r.ret >= 0 ? "text-[#00FFA3]" : "text-[#FF2D55]"}`}>{r.status === "entry" ? "—" : pct(r.ret)}</td>
       <td className="px-2 py-1.5 text-right text-slate-400">{r.barsHeld}</td>
-      <td className="px-2 py-1.5 text-right text-slate-400">{formatUsdCompact(r.volume24h)}</td>
+      <td className="px-2 py-1.5 text-right text-slate-400">{formatUsdCompact(r.liquidity30d)}</td>
       <td className="px-3 py-1.5 text-right text-slate-500">
         {r.record.count ? `${r.record.count} · ${(r.record.winRate * 100).toFixed(0)}% · ${pct(r.record.avgRet)}` : "—"}
       </td>

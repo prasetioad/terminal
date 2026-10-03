@@ -1,5 +1,5 @@
 import { fetchKlinesBulk } from "../binance";
-import { SETUP_V1, runSetupV1, scoreTrades, type StochPreset } from "../setups/setupV1";
+import { SETUP_V1, liquidity30d, runSetupV1, scoreTrades, type StochPreset } from "../setups/setupV1";
 import type { Candle } from "../types";
 import { getPairs } from "./pairs";
 
@@ -36,6 +36,8 @@ export interface ScanRow {
   exitReason: "signal" | "stop" | null;
   /** Quote volume of the last 24 h (six 4h bars), USDT. */
   volume24h: number;
+  /** Trailing 30-day average daily quote volume, USDT (the v1.1 liquidity filter). */
+  liquidity30d: number;
   /** The setup's record on this pair over the scanned bars. */
   record: { count: number; winRate: number; avgRet: number };
 }
@@ -47,6 +49,8 @@ export interface ScanResult {
   scannedAt: number;
   pairs: number;
   failed: number;
+  /** Pairs with a fresh entry on this bar — Setup v1.1 trades only when ≥ SETUP_V1.minBreadth. */
+  breadth: number;
   rows: ScanRow[];
 }
 
@@ -92,7 +96,8 @@ async function runScan(stoch: StochPreset, barTime: number): Promise<ScanResult>
 
   const order: Record<ScanStatus, number> = { entry: 0, exit: 1, open: 2 };
   rows.sort((a, b) => order[a.status] - order[b.status] || b.volume24h - a.volume24h);
-  return { stoch, barTime, scannedAt: Date.now(), pairs: pairs.length, failed, rows };
+  const breadth = rows.filter((r) => r.status === "entry").length;
+  return { stoch, barTime, scannedAt: Date.now(), pairs: pairs.length, failed, breadth, rows };
 }
 
 function rowFor(pair: { symbol: string; base: string; rank: number | null; precision: number }, candles: Candle[], stoch: StochPreset): ScanRow | null {
@@ -102,7 +107,7 @@ function rowFor(pair: { symbol: string; base: string; rank: number | null; preci
   const volume24h = candles.slice(-6).reduce((sum, c) => sum + c.volume * c.close, 0);
   const score = scoreTrades(result.trades);
   const record = { count: score.count, winRate: score.winRate, avgRet: score.avgRet };
-  const base = { symbol: pair.symbol, base: pair.base, rank: pair.rank, precision: pair.precision, lastPrice, volume24h, record };
+  const base = { symbol: pair.symbol, base: pair.base, rank: pair.rank, precision: pair.precision, lastPrice, volume24h, liquidity30d: liquidity30d(candles, last, INTERVAL_MS), record };
 
   if (result.open) {
     const t = result.open;

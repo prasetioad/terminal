@@ -2,7 +2,7 @@ import { computeMaxFlow } from "../maxflow";
 import type { Candle } from "../types";
 
 /**
- * Setup v1 — "MaxFlow+ × Stochastic, long" (docs/ROADMAP.md §4.4).
+ * Setup v1 — "MaxFlow+ × Stochastic, long" (docs/ROADMAP.md §4.4), with the v1.1 filters.
  *
  *   entry: a MaxFlow+ green dot (on the bar it is known, at most DOT_WINDOW bars back),
  *          then a Stochastic %K/%D cross up from below 20 → buy the close of that bar.
@@ -58,7 +58,28 @@ export const SETUP_V1 = {
   dotWindow: 5,
   /** Bars before the first possible entry, so the indicators have settled. */
   warmup: 220,
+  /**
+   * v1.1 breadth filter: take entries only on bars where at least this many pairs
+   * signal at once. The edge is market-wide capitulation; isolated signals averaged
+   * ~0% on the survivorship-free universe (docs/ROADMAP.md §4.5).
+   */
+  minBreadth: 10,
+  /** v1.1 liquidity filter: trailing 30-day average daily quote volume, USDT. */
+  minLiquidity30d: 1_000_000,
 } as const;
+
+const DAY_MS = 86_400_000;
+
+/** Average daily quote volume (≈ volume × close) over the 30 days up to and including bar `i`. */
+export function liquidity30d(candles: readonly Candle[], i: number, intervalMs: number): number {
+  const bars = Math.min(i + 1, Math.round((30 * DAY_MS) / intervalMs));
+  let sum = 0;
+  for (let j = i - bars + 1; j <= i; j++) sum += candles[j].volume * candles[j].close;
+  return (sum / bars) * (DAY_MS / intervalMs);
+}
+
+/** Whether `result` opened a position on the last of its `bars` (a fresh entry signal). */
+export const isFreshEntry = (result: SetupResult, bars: number) => result.open !== null && result.open.entryIndex === bars - 1;
 
 const H = 3_600_000;
 const D = 24 * H;
