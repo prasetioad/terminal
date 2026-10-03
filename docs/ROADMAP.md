@@ -124,7 +124,7 @@ Setiap tahap punya hasil yang bisa langsung dipakai dan syarat lulus.
 ### Tahap 3: Fondasi server (VPS Singapura) ← kode bot siap; menunggu VPS
 - [x] Service bot 24/7 (`bot/`), Docker + `docker-compose.yml`, panduan deploy di [BOT.md](BOT.md) §7.
 - [x] Alert Telegram dan perintah kendali. Panel "Bot" di web app.
-- [ ] VPS 24/7 (Singapura/Tokyo, dekat exchange, bebas blokir DNS ISP). **Butuh: akun VPS darimu.**
+- [x] VPS 24/7: DigitalOcean Singapura (2 GB). Firewall hanya SSH, login hanya SSH key, fail2ban, swap, backup DB harian (14 hari). Bot dan web berjalan di Docker dengan restart otomatis. Web diakses lewat tunnel SSH. Semua endpoint Binance (spot, futures, testnet) bisa dijangkau dari IP Singapura.
 - [ ] Collector: trade semua venue, bar buy/sell, order book untuk Tier A, OI, funding, likuidasi.
 - [ ] Database time-series (ClickHouse), dengan pemantau kualitas data (celah, keterlambatan).
 - [ ] Scanner pindah ke server, alert Telegram.
@@ -136,14 +136,15 @@ Setiap tahap punya hasil yang bisa langsung dipakai dan syarat lulus.
 - [x] Replay: bot dijalankan di atas data historis lewat kode yang sama dengan live. **Fidelitas 71/71 trade, 0 selisih.**
 - [x] Jurnal (SQLite: posisi, event, equity) dan dashboard di panel Bot.
 - [x] Mesin risiko: risiko per trade, maksimal posisi, cap per posisi, batas rugi harian, pause/kill switch, filter v1.1. [ ] Eksposur per sektor dan batas rugi mingguan (lanjutan).
-- [ ] **Jalankan paper ≥ 1–3 bulan** (lokal `npm run bot`, atau di VPS).
+- [ ] **Paper trading berjalan di VPS sejak 2026-10-03.** Evaluasi setelah ≥ 1–3 bulan atau ≥ 40 trade.
 - **Lulus:** minimal 1–3 bulan atau ≥ 40 trade. Win rate dan expectancy dalam interval kepercayaan backtest. Tidak ada bug eksekusi.
 
 ### Tahap 5: Koneksi Binance, testnet lalu live kecil ← kode siap; menunggu API key testnet
 - [x] **Pasar: Spot** (Setup v1 long-only: tanpa likuidasi dan funding).
 - [x] Order manager (`bot/binance.ts`): market buy, stop dipasang di exchange (STOP_LOSS, atau STOP_LOSS_LIMIT dengan buffer 2%), exit, rekonsiliasi tiap menit, order idempotent (clientOrderId, dicek ulang setelah putus), pembulatan tick/step, fee dalam USDT, sinkronisasi jam server. Teruji dengan HTTP mock (17 unit test).
 - [x] Kunci ganda mode live (`MODE=live` + frasa `LIVE_CONFIRM`). Panduan API key aman di [BOT.md](BOT.md) §5.
-- [ ] **Binance Testnet** sampai semua skenario lulus. **Butuh: API key testnet darimu** (gratis, testnet.binance.vision).
+- [x] Uji eksekusi Binance Testnet (`npm run bot:testnet-check`): beli market, stop −15% terpasang di exchange, batal, jual, batal ulang. **Lulus**, dan pembukuan bot cocok dengan saldo Binance.
+- [ ] Bot penuh dalam MODE=testnet (opsional, bisa paralel dengan paper) dan skenario restart di tengah posisi.
 - [ ] Live dengan modal kecil dan risiko 0,25–0,5% per trade. Naik bertahap kalau metrik tetap sehat.
 - **Lulus:** 1 bulan live tanpa selisih rekonsiliasi, slippage sesuai asumsi.
 
@@ -207,3 +208,4 @@ Exchange (Binance, Bybit, OKX, Coinbase, KuCoin, Deribit)
 - **2026-10-03:** Roadmap dibuat. Setup v1 ditetapkan dari riset 25 dan 99 pair. Mulai Tahap 1.
 - **2026-10-03:** Tahap 1 selesai (engine, overlay, scanner, notifikasi). Uji Stoch gabungan: "either" lulus kedua periode dan dijadikan default. Berikutnya: Tahap 2 (Research Lab di repo, semesta tanpa survivorship bias).
 - **2026-10-03:** Tahap 2 selesai. Uji tanpa survivorship bias (653 pair termasuk yang di-delist) membongkar bahwa keunggulan datang dari kapitulasi seluruh pasar → **Setup v1.1** (breadth ≥ 10, likuiditas ≥ $1M). Kode Tahap 3–6 selesai (bot: paper/testnet/live, risiko, Telegram, API, panel, Docker, replay 71/71). Menunggu: VPS, token Telegram, API key testnet.
+- **2026-10-03:** Deploy di VPS (DigitalOcean Singapura). Bot paper berjalan 24/7 dengan Telegram. Uji eksekusi testnet lulus.
