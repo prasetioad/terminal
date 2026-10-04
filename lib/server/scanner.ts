@@ -235,7 +235,8 @@ function rowV1(pair: PairInfo, candles: Candle[], stoch: StochPreset, rs30d: num
 }
 
 function rowA(pair: PairInfo, candles: Candle[], btc: Candle[] | null): ScanRow | null {
-  const result = runSetupA(candles, SETUP_A.validatedInterval, { btc: btc ?? undefined });
+  // The recommended exit (§4.16): the chandelier tightens to 4×ATR after a tall up-bar in profit.
+  const result = runSetupA(candles, SETUP_A.validatedInterval, { btc: btc ?? undefined, spikeTighten: SETUP_A.spikeTighten });
   const last = candles.length - 1;
   const hit = status(result.open, result.trades.at(-1), last);
   if (!hit) return null;

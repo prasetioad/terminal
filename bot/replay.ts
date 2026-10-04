@@ -5,7 +5,7 @@
  *
  *   npx tsx bot/replay.ts [--days 365] [--pairs BTCUSDT,ETHUSDT,...]
  */
-import { runSetupA } from "../lib/setups/setupA";
+import { SETUP_A, runSetupA } from "../lib/setups/setupA";
 import { liquidity30d, runSetupV1 } from "../lib/setups/setupV1";
 import type { Candle } from "../lib/types";
 import { loadSeries } from "../research/data";
@@ -75,7 +75,7 @@ export async function replay(series: Map<string, Candle[]>, from: number, to: nu
       for (const t of [...r.trades, ...(r.open ? [r.open] : [])]) take("v1", t);
     }
     if (cfg.setups.includes("a")) {
-      const r = runSetupA(window, BAR_MS, { btc: series.get("BTCUSDT"), maxRs: cfg.maxRsA ?? undefined });
+      const r = runSetupA(window, BAR_MS, { btc: series.get("BTCUSDT"), maxRs: cfg.maxRsA ?? undefined, spikeTighten: cfg.spikeTightenA ? SETUP_A.spikeTighten : undefined });
       for (const t of [...r.trades, ...(r.open ? [r.open] : [])]) if (t.passes) take("a", t);
     }
   }

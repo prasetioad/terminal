@@ -81,7 +81,8 @@ function Dashboard({ status: s, open, trades, onToggle }: { status: StatusSnapsh
           {s.config.maxRiskPerBar ? ` · ≤ ${(s.config.maxRiskPerBar * 100).toFixed(0)}%/bar` : ""}
           {s.config.firstDotOnly ? " · first dot only" : ""}
           {s.setups?.includes("a") && s.config.riskPerTradeA !== undefined ? ` · A: risk ${(s.config.riskPerTradeA * 100).toFixed(2)}% · max ${s.config.maxOpenPositionsA}` : ""}
-          {s.setups?.includes("a") && s.config.maxRsA != null ? ` · RS < ${(s.config.maxRsA * 100).toFixed(0)}%` : ""} · 30d liquidity ≥ $
+          {s.setups?.includes("a") && s.config.maxRsA != null ? ` · RS < ${(s.config.maxRsA * 100).toFixed(0)}%` : ""}
+          {s.setups?.includes("a") && s.config.spikeTightenA ? " · spike trail 4×ATR" : ""} · 30d liquidity ≥ $
           {(s.config.minLiquidity30d / 1e6).toFixed(1)}M
         </span>
         <button

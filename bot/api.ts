@@ -38,7 +38,7 @@ export interface StatusSnapshot {
   avgReturn: number | null;
   totalPnl: number;
   config: Pick<BotConfig, "riskPerTrade" | "maxOpenPositions" | "maxPositionFraction" | "minBreadth" | "minLiquidity30d" | "dailyLossLimit"> &
-    Partial<Pick<BotConfig, "maxRiskPerBar" | "riskPerTradeA" | "maxOpenPositionsA" | "firstDotOnly" | "maxRsA">>;
+    Partial<Pick<BotConfig, "maxRiskPerBar" | "riskPerTradeA" | "maxOpenPositionsA" | "firstDotOnly" | "maxRsA" | "spikeTightenA">>;
 }
 
 function stats(open: number, closed: { pnl: number | null; cost: number }[]): SetupStats {
@@ -89,6 +89,7 @@ export async function statusSnapshot(engine: BotEngine, nextRun: number | null):
       maxOpenPositionsA: engine.cfg.maxOpenPositionsA,
       firstDotOnly: engine.cfg.firstDotOnly,
       maxRsA: engine.cfg.maxRsA,
+      spikeTightenA: engine.cfg.spikeTightenA,
     },
   };
 }

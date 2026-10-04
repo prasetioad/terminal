@@ -55,15 +55,19 @@ interface Candidate {
 }
 
 export const SETUP_LABEL: Record<SetupId, string> = { v1: "v1", a: "A" };
-/** Human name of the configured setups, e.g. "Setups v1.2 + A". */
-export const setupsName = (cfg: BotConfig) =>
-  `Setup${cfg.setups.length > 1 ? "s" : ""} ${cfg.setups
-    .map((s) =>
+/** Human name of the configured setups, e.g. "Setups v1.2 (first dot) + A (RS below -10%, spike trail)". No "<": Telegram messages are HTML. */
+export function setupsName(cfg: BotConfig): string {
+  const name = (s: SetupId) => {
+    const notes =
       s === "v1"
-        ? `${cfg.maxRiskPerBar > 0 ? "v1.2" : "v1.1"}${cfg.firstDotOnly ? " (first dot)" : ""}`
-        : `A${cfg.maxRsA !== null ? ` (RS below ${(cfg.maxRsA * 100).toFixed(0)}%)` : ""}`, // no "<": Telegram messages are HTML
-    )
-    .join(" + ")}`;
+        ? [cfg.firstDotOnly ? "first dot" : ""]
+        : [cfg.maxRsA !== null ? `RS below ${(cfg.maxRsA * 100).toFixed(0)}%` : "", cfg.spikeTightenA ? "spike trail" : ""];
+    const label = s === "v1" ? (cfg.maxRiskPerBar > 0 ? "v1.2" : "v1.1") : "A";
+    const shown = notes.filter(Boolean);
+    return shown.length ? `${label} (${shown.join(", ")})` : label;
+  };
+  return `Setup${cfg.setups.length > 1 ? "s" : ""} ${cfg.setups.map(name).join(" + ")}`;
+}
 
 const CONCURRENCY = 4;
 
@@ -122,7 +126,7 @@ export class BotEngine {
     const needsBtc = this.cfg.setups.includes("a") || held.some((p) => p.setup === "a");
     const btc = needsBtc ? await this.market.closedBars("BTCUSDT", barTime, SETUP_V1.warmup + 2).catch(() => null) : null;
     if (needsBtc && !btc && this.cfg.maxRsA !== null) report.errors.push("BTCUSDT: no bars this cycle — Setup A entries need it for the RS filter and are skipped");
-    const optionsA = { btc: btc ?? undefined, maxRs: this.cfg.maxRsA ?? undefined };
+    const optionsA = { btc: btc ?? undefined, maxRs: this.cfg.maxRsA ?? undefined, spikeTighten: this.cfg.spikeTightenA ? SETUP_A.spikeTighten : undefined };
 
     const evals = new Map<string, Evaluation>();
     await mapLimit(pairs, CONCURRENCY, async (pair) => {

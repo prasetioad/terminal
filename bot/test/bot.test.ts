@@ -386,6 +386,17 @@ describe("entry improvements", () => {
     const report = await engine.runCycle(at);
     assert.ok(report.breadth >= 3, "the second-dot signals count toward breadth");
   });
+  it("the spike trail only ever tightens the chandelier, so a trade never exits later", () => {
+    const plain = runSetupA(base, BAR_MS);
+    const tight = runSetupA(base, BAR_MS, { spikeTighten: { range: 3, k: 4 } });
+    assert.ok(tight.trades.length >= plain.trades.length);
+    const first = tight.trades[0];
+    const same = plain.trades.find((t) => t.entryIndex === first.entryIndex)!;
+    assert.ok(first.exitIndex! <= same.exitIndex!);
+    for (let j = 0; j < first.trail.length; j++) assert.ok(first.trail[j] >= same.trail[j] - 1e-9);
+    assert.equal(loadConfig({}).spikeTightenA, false);
+    assert.equal(loadConfig({ A_SPIKE_TIGHTEN: "1" }).spikeTightenA, true);
+  });
   it("first dot only drops second dots of a drop and keeps the rest of the sequence valid", () => {
     const all = runSetupV1(base, { stoch: "either", intervalMs: BAR_MS });
     const firsts = runSetupV1(base, { stoch: "either", intervalMs: BAR_MS, firstDotOnly: true });

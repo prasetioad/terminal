@@ -37,6 +37,7 @@ Bot bisa menjalankan **Setup v1** (kapitulasi) dan **Setup A** (breakout) bersam
 | `MAX_OPEN_POSITIONS_A` | Batas posisi Setup A | `15` |
 | `V1_FIRST_DOT_ONLY` | §4.12: v1 hanya di titik hijau pertama dalam satu penurunan (titik hijau berikutnya dalam 30 candle dilewati) | `0` (mati) |
 | `A_MAX_RS` | §4.12: Setup A hanya untuk koin yang return 30 harinya tertinggal dari BTC lebih dari nilai ini, misalnya `-0.1` | kosong (mati) |
+| `A_SPIKE_TIGHTEN` | §4.16: trailing Setup A dirapatkan ke 4×ATR setelah candle hijau setinggi ≥ 3×ATR saat posisi profit | `0` (mati) |
 
 - Satu pair hanya punya satu posisi, dari setup mana pun. Kandidat kedua setup diurutkan dari yang paling likuid, seperti di riset. Setup A maksimal 5 entry per candle.
 - **Exit Setup A:** stop awal 8×ATR dipasang di exchange, lalu trailing (close tertinggi − 8×ATR) dicek di setiap close 4h dan dijual market kalau tertembus.

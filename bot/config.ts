@@ -34,6 +34,8 @@ export interface BotConfig {
   maxOpenPositionsA: number;
   /** Setup A: take only coins whose 30-day return trails BTC's by more than this (e.g. −0.1); null = off (§4.12). */
   maxRsA: number | null;
+  /** Setup A: tighten the chandelier to 4×ATR after a tall up-bar (≥ 3×ATR) in profit (§4.16). */
+  spikeTightenA: boolean;
   /** Cap on a single position, as a fraction of equity. */
   maxPositionFraction: number;
   /** Setup v1: open positions at most. */
@@ -101,6 +103,7 @@ export function loadConfig(env: Env = process.env): BotConfig {
     firstDotOnly: bool(env, "V1_FIRST_DOT_ONLY", false),
     riskPerTradeA: num(env, "RISK_PER_TRADE_A", 0.005, 0.0005, 0.05),
     maxOpenPositionsA: num(env, "MAX_OPEN_POSITIONS_A", 15, 1, 50),
+    spikeTightenA: bool(env, "A_SPIKE_TIGHTEN", false),
     maxRsA: env.A_MAX_RS === undefined || env.A_MAX_RS.trim() === "" ? null : num(env, "A_MAX_RS", 0, -1, 1),
     maxPositionFraction: num(env, "MAX_POSITION_FRACTION", 0.1, 0.01, 0.5),
     maxOpenPositions: num(env, "MAX_OPEN_POSITIONS", 15, 1, 50),

@@ -213,7 +213,7 @@ export default function SetupScanner(props: SetupScannerProps) {
           {isA ? (
             <>
               Rules (Setup A): the 4h close breaks above the 20-day high → long at the close; stop {SETUP_A.atrMult}×ATR; exit on a close below the chandelier (highest close −{" "}
-              {SETUP_A.atrMult}×ATR); validated filter: volume ≥ {SETUP_A.minSurge}× the 30-day average. Survivorship-free backtest (653 pairs, 2021–2026, 0.5% risk per trade): ~30–35%
+              {SETUP_A.atrMult}×ATR, tightened to {SETUP_A.spikeTighten.k}×ATR after an up-bar of ≥ {SETUP_A.spikeTighten.range}×ATR in profit); validated filter: volume ≥ {SETUP_A.minSurge}× the 30-day average. Survivorship-free backtest (653 pairs, 2021–2026, 0.5% risk per trade): ~30–35%
               wins, winners ~3× losers, holds ~3 weeks; +12–20%/yr with −15 to −25% drawdowns in- and out-of-sample. Research only — not traded by the bot.
             </>
           ) : (

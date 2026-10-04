@@ -302,6 +302,53 @@ Lalu **bot** yang mengeksekusi setup yang sudah terbukti, otomatis di Binance, d
 
 **Putusan:** data posisi futures **tidak memberi confluence yang stabil** untuk v1.2 maupun Setup A. Perilakunya berbalik antara 2022–pertengahan 2024 (bear/pemulihan: keramaian long buruk) dan pertengahan 2024–2026 (bull: keramaian long malah bagus). Tidak diterapkan ke bot. Catatan: periode IS untuk data ini lebih pendek (±2,5 tahun) dan didominasi satu regime, jadi kesimpulan ini juga bisa berubah. Collector di VPS (F6) tetap berguna untuk menguji ulang dengan data yang lebih panjang.
 
+### 4.15 Metode take-profit untuk v1.2 dan Setup A (riset lokal)
+
+`npx tsx research/tp.ts`. Entry sesuai bot saat ini (v1.2 titik hijau pertama; A volume + RS < −10%; A semua RS sebagai pembanding). SL tidak berubah. Pilihan di IS, dilaporkan di OOS.
+
+**Setup A (bot) berdiri sendiri, Calmar IS │ OOS:** hari ini 8×ATR 1,15 │ 1,48.
+
+| Metode | Calmar IS │ OOS | Putusan |
+|---|---|---|
+| Trailing tetap 5 / 6 / 10 / 12×ATR | 1,09 / 0,97 / 0,77 / 0,62 │ 1,91 / 1,99 / 0,94 / 0,81 | ➖ tidak konsisten; trailing lebih longgar selalu lebih buruk |
+| 12×ATR kalau volume entry ≥ 3× / ≥ 5× (usulan pemilik, di atas 8×) | 1,14 / 1,15 │ 1,46 / 1,47 | ➖ netral |
+| **6×ATR, 10× kalau volume entry ≥ 3×** | **1,33 │ 2,07** (pembanding semua RS: 0,55 │ 1,79 vs 0,50 │ 1,31; pilihan IS di sana) | ✅ |
+| Trailing 12× setelah candle naik bervolume ≥ 5× / 10× | 0,73 / 0,78 │ 0,76 / 0,74 | ❌ |
+| Exit di volume klimaks ≥ 5× / ≥ 10× (pilihan IS) | 1,94 / 2,14 │ 1,95 / 1,92 | ⚠️ sendirian bagus, tapi di gabungan OOS turun (1,76 → 1,57). Rata-rata per trade turun dari +21–24% ke +12–13% |
+| **Perketat ke 5×ATR setelah +100%** | **1,35 │ 2,11** | ✅ |
+| Perketat ke 5×ATR setelah +50% | 1,35 │ 2,19 | ✅ (CAGR IS lebih rendah) |
+| Turtle (close di bawah low 10 hari) | 0,64 │ 0,86 | ❌ |
+
+**v1.2** (hari ini 0,98 │ 1,17): trailing low 10 candle / 3×ATR setelah titik merah 0,87 / 0,96 │ 0,34 / 0,50 ❌. Trailing hanya kalau breadth ≥ 25/40 0,92 / 0,98 │ 0,77 / 0,85 ❌. Trailing kalau candle titik merah bervolume ≥ 3× 0,91 │ 1,35 ➖ (IS sedikit lebih buruk). Volume klimaks 0,84–0,98 │ 1,11–1,16 ➖. **TP di titik merah pertama tetap terbaik.**
+
+**Gabungan (v1.2 hari ini + varian A):**
+
+| | IS CAGR / DD / Calmar | OOS CAGR / DD / Calmar |
+|---|---|---|
+| Hari ini | +25,0% / −17,9% / 1,40 | +31,6% / −17,9% / 1,76 |
+| **A: perketat ke 5× setelah +100%** | **+27,2% / −17,4% / 1,57** | **+33,9% / −17,9% / 1,89** |
+| **A: 6×, 10× kalau volume entry ≥ 3×** | **+25,3% / −16,2% / 1,56** | **+35,2% / −16,9% / 2,09** |
+| A: keduanya digabung | +27,4% / −17,6% / 1,55 | +35,0% / −18,1% / 1,93 |
+| A: exit volume klimaks ≥ 10× | +30,6% / −13,6% / 2,25 | +28,5% / −18,2% / 1,57 ❌ |
+
+- "Perketat setelah +100%" sama atau lebih baik dari hari ini **di setiap tahun** 2021–2026 (2024: +60 → +70%).
+- Catatan: sekitar 30 varian diuji, jadi perbaikan sebesar +0,1–0,3 Calmar bisa sebagian kebetulan. Dua kandidat di atas dipilih karena konsisten di IS, OOS, dan di semesta A tanpa filter RS.
+- **Status:** kandidat. Belum di bot, menunggu keputusan pemilik.
+
+### 4.16 Setup A: trailing dirapatkan setelah lonjakan (usulan pemilik, riset lokal)
+
+`research/tp.ts` (opsi `spike`). Saat posisi sedang profit dan terjadi lonjakan besar, trailing chandelier dirapatkan dari 8×ATR ke k×ATR sampai exit. Tujuannya mengunci profit lonjakan sebelum harga mengembalikannya. Tiga definisi lonjakan ditetapkan sebelum melihat hasil: naik ≥ 20/30% dalam sehari; candle 4h hijau dengan range ≥ 3/4×ATR; candle hijau dengan volume ≥ 5/10× rata-rata. k = 3, 4, 5.
+
+**Gabungan v1.2 + Setup A, Calmar IS │ OOS:** hari ini **1,40 │ 1,76**.
+- Semua 18 varian berada di **1,46–1,99 │ 1,83–2,45**: lebih baik di kedua periode, kecuali 3 varian yang setara di OOS. Polanya berupa plato yang lebar, bukan satu angka yang kebetulan.
+- **Pilihan IS: candle hijau range ≥ 3×ATR → 4×ATR: +26,9% / −13,5% / 1,99 │ +33,7% / −14,7% / 2,29** (hari ini +25,0% / −17,9% │ +31,6% / −17,9%).
+- Naik ≥ 20% sehari → 4×ATR: 1,78 │ **2,45** (OOS +37,1% / −15,2%).
+- Volume ≥ 5× → 4×ATR: 1,81 │ 2,25.
+- Per trade (pilihan IS): profit yang dikembalikan dari puncak oleh trade menang turun **+43% → +27% (IS) dan +50% → +34% (OOS)**. Rata-rata per trade IS +20,7% → +14,3%, OOS +24,0% → +24,3%; posisi lebih cepat selesai sehingga modal berputar.
+- Per tahun (pilihan IS): 2021 +12,0 → +12,3%, 2022 +19,2 → +18,9%, 2023 +56,1 → +55,5%, 2024 +60,0 → **+66,9%** (DD −26 → −22%), 2025 +16,8 → +21,6%, **2026 +13,5 → +7,2%**. Drawdown lebih kecil di setiap tahun.
+- Lebih baik dari "perketat setelah +100%" (§4.15: 1,57 │ 1,89).
+- **Status:** ✅ 2026-10-04 di engine bersama (`spikeTighten`, identik dengan riset 5.734/5.734), di bot (`A_SPIKE_TIGHTEN`, default mati; aktif di paper lokal), di indikator Setup A (aktif secara default) dan di scanner (kolom "Exit below").
+
 ## 5. Roadmap
 
 Setiap tahap punya hasil yang bisa langsung dipakai dan syarat lulus.
@@ -467,3 +514,6 @@ Exchange (Binance, Bybit, OKX, Coinbase, KuCoin, Deribit)
 - **2026-10-04:** Perbaikan entry §4.12 masuk ke bot sebagai opsi (default mati, bot VPS tidak berubah). Fidelity replay dengan opsi aktif: v1 64/64, A 12/12; default: 71/71, 59/59. Paper lokal: v1.2 (titik hijau pertama) + A (RS < −10%), $300.
 - **2026-10-04:** Rencana Tahap 7 ditulis: data posisi (funding, OI, long/short, taker ratio, basis, pengumuman) sebagai confluence untuk exposure dan peringatan TP/SL, bukan pemicu entry. Langkah F1–F6.
 - **2026-10-04:** Tahap 7 F1–F4 (§4.14): data futures diunduh (471 perp). Funding/OI/long-short/taker/basis tidak konsisten antar periode, sehingga tidak dipakai sebagai confluence. Bug breadth di bot (dengan `V1_FIRST_DOT_ONLY`) diperbaiki: breadth kembali dihitung dari semua sinyal v1.
+- **2026-10-04:** Riset TP (§4.15): v1.2 tetap TP di titik merah pertama. Setup A: "perketat ke 5×ATR setelah +100%" dan "6×ATR, 10× kalau volume entry ≥ 3×" lebih baik di IS dan OOS. Exit volume klimaks gagal di gabungan.
+- **2026-10-04:** Usulan pemilik diuji (§4.16): merapatkan trailing Setup A ke 4×ATR setelah lonjakan (candle hijau ≥ 3×ATR) memperbaiki gabungan di IS dan OOS (Calmar 1,40 → 1,99 │ 1,76 → 2,29, DD −18 → −14/−15%). Seluruh 18 varian lebih baik atau setara.
+- **2026-10-04:** Trailing lonjakan §4.16 terpasang (engine, bot opsi `A_SPIKE_TIGHTEN`, indikator, scanner).

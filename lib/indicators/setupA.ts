@@ -29,10 +29,11 @@ export const setupAIndicator: IndicatorDefinition = {
   category: "Setups",
   placement: "overlay",
   params: [
+    { key: "spikeTighten", label: "Tighten the trail to 4×ATR after a tall up-bar (≥ 3×ATR)", type: "boolean", default: true },
     { key: "showUnconfirmed", label: "Show breakouts without volume (faded)", type: "boolean", default: false },
     { key: "showHistory", label: "Show past trades", type: "boolean", default: true },
   ],
-  summary: () => `20D high · ${SETUP_A.atrMult}×ATR · vol ≥ ${SETUP_A.minSurge}×`,
+  summary: (p) => `20D high · ${SETUP_A.atrMult}×ATR${p.spikeTighten ? ` → ${SETUP_A.spikeTighten.k}× after a spike` : ""} · vol ≥ ${SETUP_A.minSurge}×`,
 
   create(ctx, initial) {
     let params: IndicatorParams = initial;
@@ -42,7 +43,7 @@ export const setupAIndicator: IndicatorDefinition = {
 
     const compute = (d: IndicatorData) => {
       data = d;
-      result = runSetupA(d.candles, d.intervalMs);
+      result = runSetupA(d.candles, d.intervalMs, { spikeTighten: params.spikeTighten ? SETUP_A.spikeTighten : undefined });
     };
 
     const paint = (scope: DrawScope) => {
@@ -135,8 +136,7 @@ export const setupAIndicator: IndicatorDefinition = {
         primitive.refresh();
       },
       setParams(next) {
-        params = next;
-        primitive.refresh();
+        params = next; // the host renders right after
       },
       setVisible(next) {
         visible = next;

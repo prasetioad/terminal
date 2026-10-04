@@ -11,6 +11,8 @@ import type { Candle } from "../types";
  *   stop:   8 × ATR(14) below the entry, resting (filled at the stop, or the open on a gap).
  *           Breakouts needing more than 25% are skipped.
  *   exit:   a close below the chandelier, highest close since entry − 8 × ATR(14).
+ *           Optional (§4.16): once a tall up-bar (range ≥ 3 × ATR) closes while in
+ *           profit, the chandelier tightens to 4 × ATR, locking in the spike.
  *
  * Every breakout is traded one at a time per pair, filtered or not, exactly as in the
  * research (a filtered breakout still occupies the pair). This is the one implementation
@@ -44,6 +46,8 @@ export interface SetupAOptions {
   btc?: readonly Candle[];
   /** Pass only entries with rs below this (e.g. −0.10); undefined = no relative-strength filter. */
   maxRs?: number;
+  /** Tighten the chandelier after a spike (§4.16): an up-bar of range ≥ `range` × ATR closing in profit → `k` × ATR. */
+  spikeTighten?: { range: number; k: number };
 }
 
 export interface SetupAResult {
@@ -68,6 +72,8 @@ export const SETUP_A = {
   rsBars: 180,
   /** §4.12 candidate: coins that lagged BTC by more than 10% over 30 days. */
   maxRs: -0.1,
+  /** §4.16: a tall up-bar (≥ 3×ATR) in profit tightens the chandelier to 4×ATR. */
+  spikeTighten: { range: 3, k: 4 },
 } as const;
 
 const DAY_MS = 86_400_000;
@@ -139,13 +145,13 @@ export function runSetupA(candles: readonly Candle[], intervalMs: number, option
   if (n <= SETUP_A.warmup + 1) return { trades, open: null };
   const hh = priorHigh(candles, SETUP_A.lookback);
   const a = atr(candles, SETUP_A.atrLength);
-  const k = SETUP_A.atrMult;
+  const k0 = SETUP_A.atrMult;
 
   // An entry on the last bar is a position opened on that close (the scanner's "new entry").
   for (let s: number = SETUP_A.warmup; s < n; s++) {
     if (!(candles[s].close > hh[s] && candles[s - 1].close <= hh[s - 1])) continue;
     const entryPrice = candles[s].close;
-    const stopDist = (k * a[s]) / entryPrice;
+    const stopDist = (k0 * a[s]) / entryPrice;
     if (stopDist > SETUP_A.maxStopPct) continue;
     const surge = volumeSurge(candles, s, intervalMs);
     const rs = relativeStrength(candles, s, options.btc);
@@ -159,7 +165,7 @@ export function runSetupA(candles: readonly Candle[], intervalMs: number, option
       surge,
       rs,
       passes: surge >= SETUP_A.minSurge && rsOk,
-      trail: [entryPrice - k * a[s]],
+      trail: [entryPrice - k0 * a[s]],
       exitIndex: null,
       exitTime: null,
       exitPrice: null,
@@ -167,6 +173,7 @@ export function runSetupA(candles: readonly Candle[], intervalMs: number, option
       ret: null,
     };
     let best = entryPrice;
+    let k: number = k0;
     let x = s + 1;
     for (; x < n; x++) {
       const bar = candles[x];
@@ -179,6 +186,8 @@ export function runSetupA(candles: readonly Candle[], intervalMs: number, option
         break;
       }
       best = Math.max(best, bar.close);
+      const spike = options.spikeTighten;
+      if (spike && bar.close > entryPrice * (1 + 2 * SETUP_A.cost) && bar.close > bar.open && bar.high - bar.low >= spike.range * a[x - 1]) k = Math.min(k, spike.k);
       trade.trail.push(best - k * a[x]);
     }
     if (trade.exitIndex === null) return { trades, open: trade };
