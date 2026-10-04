@@ -9,7 +9,7 @@ import { inflateRawSync } from "node:zlib";
 import type { Candle } from "../lib/types";
 
 export const CACHE_DIR = path.join(import.meta.dirname, ".cache");
-const ARCHIVE = "https://data.binance.vision";
+export const ARCHIVE = "https://data.binance.vision";
 const LISTING = "https://s3-ap-northeast-1.amazonaws.com/data.binance.vision";
 const API = "https://data-api.binance.vision";
 
@@ -21,10 +21,10 @@ export interface ResearchBar extends Candle {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** At most this many archive downloads in flight across all symbols. */
-const DOWNLOAD_SLOTS = 12;
+const DOWNLOAD_SLOTS = Number(process.env.RESEARCH_SLOTS ?? 12);
 let inFlight = 0;
 const waiting: (() => void)[] = [];
-async function slot<T>(fn: () => Promise<T>): Promise<T> {
+export async function slot<T>(fn: () => Promise<T>): Promise<T> {
   if (inFlight >= DOWNLOAD_SLOTS) await new Promise<void>((r) => waiting.push(r));
   inFlight++;
   try {
@@ -52,12 +52,15 @@ export async function fetchWithRetry(url: string, init?: RequestInit, attempts =
 }
 
 /** Every key (or common prefix) under `prefix` in the archive bucket, following pagination. */
-async function listBucket(prefix: string, delimiter: boolean): Promise<string[]> {
+export async function listBucket(prefix: string, delimiter: boolean): Promise<string[]> {
   const out: string[] = [];
   let marker = "";
   for (;;) {
     const url = `${LISTING}?prefix=${encodeURIComponent(prefix)}${delimiter ? "&delimiter=/" : ""}${marker ? `&marker=${encodeURIComponent(marker)}` : ""}`;
-    const xml = await (await fetchWithRetry(url)).text();
+    const res = await fetchWithRetry(url);
+    const xml = await res.text();
+    // An error page has no keys either: never mistake it for an empty listing.
+    if (!res.ok || !xml.includes("<ListBucketResult")) throw new Error(`listing ${prefix}: HTTP ${res.status}`);
     const tag = delimiter ? /<Prefix>([^<]+)<\/Prefix>/g : /<Key>([^<]+)<\/Key>/g;
     const found = [...xml.matchAll(tag)].map((m) => m[1]).filter((k) => k !== prefix);
     out.push(...found);
@@ -80,7 +83,7 @@ export async function archiveSymbols(): Promise<string[]> {
 }
 
 /** The single CSV inside a Binance archive zip (read through the central directory). */
-function unzipSingle(buf: Buffer): string {
+export function unzipSingle(buf: Buffer): string {
   const eocd = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
   if (eocd < 0) throw new Error("not a zip");
   const central = buf.readUInt32LE(eocd + 16);
