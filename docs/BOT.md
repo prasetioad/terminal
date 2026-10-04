@@ -131,6 +131,21 @@ docker compose logs -f bot
 - **Update:** `git pull && docker compose up -d --build`. Bot menyelesaikan siklus yang sedang berjalan sebelum berhenti.
 - `API_TOKEN` wajib di Docker. Tanpa token, API bot hanya mendengarkan di localhost container, sehingga panel Bot tidak bisa menjangkaunya.
 
+## 7b. Dua bot di VPS: paper (testing) dan ops (testnet lalu live)
+
+| | Paper (`bot`) | Ops (`bot-ops`) |
+|---|---|---|
+| Pengaturan | `bot/.env` (`MODE=paper`) | `bot/.env.ops` (`MODE=testnet`, nanti `MODE=live` + `LIVE_CONFIRM`) |
+| Database | `bot/data/bot.sqlite` | `bot/data/ops.sqlite` |
+| Fungsi | Menguji perubahan dan varian tanpa uang | Menjalankan strategi yang sudah terbukti di exchange |
+| Telegram | Bot Telegram kedua (kosongkan token kalau belum ada) | Bot Telegram utama |
+| Menjalankan | `docker compose up -d --build` | `docker compose --profile ops up -d --build` |
+
+- Satu token Telegram hanya untuk satu bot. Kalau dua bot memakai token yang sama, perintah dan pesan akan bentrok.
+- `API_TOKEN` sama di kedua file (dan di `.env` root untuk container web). Panel Bot di web punya pilihan **Paper / Ops**.
+- **Ke live:** buat API key live (Spot only, withdrawal mati, dibatasi ke IP VPS), isi saldo USDT di akun Spot, lalu di `bot/.env.ops` set `MODE=live`, `LIVE_CONFIRM=I_UNDERSTAND_THIS_TRADES_REAL_MONEY`, dan ganti `BINANCE_API_KEY`/`BINANCE_API_SECRET` dengan key live. Kunci tidak pernah dikirim lewat chat: tulis di file lokal yang di-ignore, lalu salin hanya baris itu ke server.
+- Jangan trading manual di koin yang sedang dipegang bot ops. Bot hanya memakai USDT yang bebas.
+
 ## 8. Konfigurasi
 
 Semua pengaturan ada di [bot/.env.example](../bot/.env.example), lengkap dengan penjelasan. Nilai di luar batas aman ditolak saat start (misalnya risiko per trade maksimal 5%).

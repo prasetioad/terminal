@@ -6,9 +6,12 @@ import type { StatusSnapshot } from "@/bot/api";
 import type { Position } from "@/bot/db";
 
 /**
- * The bot's dashboard: mode, account, live results against the backtest, open
- * positions and recent trades, with pause / resume. Reads the bot through /api/bot.
+ * The bots' dashboard: mode, account, live results against the backtest, open
+ * positions and recent trades, with pause / resume. Reads the paper or the ops bot
+ * through /api/bot.
  */
+
+type Which = "paper" | "ops";
 
 type State = { status: StatusSnapshot; open: Position[]; trades: Position[] } | { error: string };
 
@@ -24,12 +27,14 @@ const MODE_STYLE = {
 } as const;
 
 export default function BotPanel({ onClose }: { onClose: () => void }) {
+  const [which, setWhich] = useState<Which>("paper");
   const [state, setState] = useState<State | null>(null);
+  const query = which === "ops" ? "?bot=ops" : "";
 
   const load = useCallback(async () => {
     try {
       const get = async <T,>(p: string): Promise<T> => {
-        const res = await fetch(`/api/bot/${p}`, { cache: "no-store" });
+        const res = await fetch(`/api/bot/${p}${query}`, { cache: "no-store" });
         const body = await res.json();
         if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
         return body as T;
@@ -39,22 +44,37 @@ export default function BotPanel({ onClose }: { onClose: () => void }) {
     } catch (err) {
       setState({ error: (err as Error).message });
     }
-  }, []);
+  }, [query]);
 
   useEffect(() => {
+    setState(null);
     void load();
     const id = setInterval(() => void load(), 15_000);
     return () => clearInterval(id);
   }, [load]);
 
   const toggle = async (paused: boolean) => {
-    await fetch(`/api/bot/${paused ? "resume" : "pause"}`, { method: "POST" });
+    await fetch(`/api/bot/${paused ? "resume" : "pause"}${query}`, { method: "POST" });
     await load();
   };
 
   return (
     <Modal title="Trading bot" onClose={onClose} width="max-w-4xl">
       <div className="flex flex-col gap-4 p-4 font-mono text-xs">
+        <div className="flex overflow-hidden self-start rounded border border-[#1E2631]" role="tablist" aria-label="Bot">
+          {(["paper", "ops"] as const).map((w) => (
+            <button
+              key={w}
+              type="button"
+              role="tab"
+              aria-selected={which === w}
+              onClick={() => setWhich(w)}
+              className={`px-3 py-1 text-[11px] ${which === w ? "bg-[#00E5FF]/15 text-[#00E5FF]" : "text-slate-400 hover:text-slate-200"}`}
+            >
+              {w === "paper" ? "Paper · testing" : "Ops · testnet / live"}
+            </button>
+          ))}
+        </div>
         {!state && <p className="text-slate-500">Connecting to the bot…</p>}
         {state && "error" in state && (
           <div className="rounded border border-amber-400/30 bg-amber-400/5 p-3 leading-relaxed text-amber-200">

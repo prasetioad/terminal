@@ -1,6 +1,8 @@
-# Bot + web app on one server (docs/BOT.md → "Deploy").  docker compose up -d --build
+# Bots + web app on one server (docs/BOT.md → "Deploy").
+#   docker compose up -d --build                  paper bot + web
+#   docker compose --profile ops up -d --build    + the ops bot (testnet, then live) — needs bot/.env.ops
 services:
-  bot:
+  bot: # paper: tests changes and variants, no money involved
     build: { context: ., dockerfile: bot/Dockerfile }
     env_file: bot/.env
     environment:
@@ -10,11 +12,23 @@ services:
     restart: unless-stopped
     stop_grace_period: 2m # the bot finishes a running cycle before it exits
 
+  bot-ops: # operations: Binance testnet first, then live (MODE=live + LIVE_CONFIRM in bot/.env.ops)
+    profiles: [ops]
+    build: { context: ., dockerfile: bot/Dockerfile }
+    env_file: bot/.env.ops
+    environment:
+      DB_PATH: /app/bot/data/ops.sqlite
+    volumes:
+      - ./bot/data:/app/bot/data
+    restart: unless-stopped
+    stop_grace_period: 2m
+
   web:
     build: { context: ., dockerfile: Dockerfile.web }
     environment:
       BOT_API_URL: http://bot:8787
-      BOT_API_TOKEN: ${API_TOKEN:-}
+      BOT_OPS_API_URL: http://bot-ops:8787
+      BOT_API_TOKEN: ${API_TOKEN:-} # the same API_TOKEN in bot/.env and bot/.env.ops
     ports:
       - "127.0.0.1:3000:3000" # reach it through an SSH tunnel or a reverse proxy with auth
     depends_on: [bot]

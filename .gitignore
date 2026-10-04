@@ -10,3 +10,4 @@ research/.cache
 bot/.env
 bot/data
 bot/.env.local
+bot/.env.ops
