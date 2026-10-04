@@ -1,6 +1,6 @@
 import { fetchKlinesBulk } from "../binance";
 import { SETUP_A, runSetupA } from "../setups/setupA";
-import { SETUP_V1, liquidity30d, runSetupV1, scoreTrades, type StochPreset } from "../setups/setupV1";
+import { SETUP_V1, isFreshEntry, liquidity30d, runSetupV1, scoreTrades, type StochPreset } from "../setups/setupV1";
 import type { Candle } from "../types";
 import { getPairs } from "./pairs";
 
@@ -40,7 +40,7 @@ export interface ScanRow {
   ret: number;
   barsHeld: number;
   exitReason: "signal" | "stop" | "trail" | null;
-  /** Whether the trade passes the setup's validated filter (A: volume ≥ 1.5×; v1: always). */
+  /** Whether the trade passes the bot's rules (A: volume ≥ 1.5× and RS < −10%; v1: always — it is a first-dot signal). */
   passes: boolean;
   /** A: last-day volume ÷ 30-day daily average at the entry. */
   surge: number | null;
@@ -62,7 +62,7 @@ export interface ScanResult {
   scannedAt: number;
   pairs: number;
   failed: number;
-  /** Pairs with a fresh (validated) entry on this bar — Setup v1.1 trades only when ≥ SETUP_V1.minBreadth. */
+  /** v1: pairs with a fresh v1 signal on this bar, every dot (the bot trades only when ≥ SETUP_V1.minBreadth). A: fresh entries passing the bot's rules. */
   breadth: number;
   /** Crypto Fear & Greed index (alternative.me), null when unavailable. */
   fearGreed: number | null;
@@ -170,15 +170,18 @@ const ret30 = (candles: Candle[]) => (candles.length > RS_BARS ? candles[candles
 function scan(data: BarData, setup: ScanSetup, stoch: StochPreset): ScanResult {
   const btcRet = data.btc ? ret30(data.btc) : null;
   const rows: ScanRow[] = [];
+  let signals = 0;
   for (const { pair, candles } of data.series) {
     const own = ret30(candles);
     const rs30d = own === null || btcRet === null ? null : own - btcRet;
+    // Breadth counts every v1 signal (the market's capitulation); entries are first dots only (the bot's rules).
+    if (setup === "v1" && isFreshEntry(runSetupV1(candles, { stoch, intervalMs: INTERVAL_MS }), candles.length)) signals++;
     const row = setup === "v1" ? rowV1(pair, candles, stoch, rs30d) : rowA(pair, candles, data.btc);
     if (row) rows.push(row);
   }
   const order: Record<ScanStatus, number> = { entry: 0, exit: 1, open: 2 };
   rows.sort((a, b) => order[a.status] - order[b.status] || Number(b.passes) - Number(a.passes) || b.volume24h - a.volume24h);
-  const breadth = rows.filter((r) => r.status === "entry" && r.passes).length;
+  const breadth = setup === "v1" ? signals : rows.filter((r) => r.status === "entry" && r.passes).length;
   return { setup, stoch, barTime: data.barTime, scannedAt: Date.now(), pairs: data.pairs, failed: data.failed, breadth, fearGreed: data.fearGreed, btcVs200d: data.btcVs200d, rows };
 }
 
@@ -212,7 +215,7 @@ function common(pair: PairInfo, candles: Candle[], rs30d: number | null) {
 }
 
 function rowV1(pair: PairInfo, candles: Candle[], stoch: StochPreset, rs30d: number | null): ScanRow | null {
-  const result = runSetupV1(candles, { stoch, intervalMs: INTERVAL_MS });
+  const result = runSetupV1(candles, { stoch, intervalMs: INTERVAL_MS, firstDotOnly: true });
   const last = candles.length - 1;
   const hit = status(result.open, result.trades.at(-1), last);
   if (!hit) return null;
@@ -235,8 +238,8 @@ function rowV1(pair: PairInfo, candles: Candle[], stoch: StochPreset, rs30d: num
 }
 
 function rowA(pair: PairInfo, candles: Candle[], btc: Candle[] | null): ScanRow | null {
-  // The recommended exit (§4.16): the chandelier tightens to 4×ATR after a tall up-bar in profit.
-  const result = runSetupA(candles, SETUP_A.validatedInterval, { btc: btc ?? undefined, spikeTighten: SETUP_A.spikeTighten });
+  // The bot's rules: volume + RS < −10% (§4.12); the chandelier tightens to 4×ATR after a tall up-bar in profit (§4.16).
+  const result = runSetupA(candles, SETUP_A.validatedInterval, { btc: btc ?? undefined, maxRs: SETUP_A.maxRs, spikeTighten: SETUP_A.spikeTighten });
   const last = candles.length - 1;
   const hit = status(result.open, result.trades.at(-1), last);
   if (!hit) return null;

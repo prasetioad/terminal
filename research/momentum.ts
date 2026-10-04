@@ -357,6 +357,8 @@ export interface Result {
   maxDD: number;
   calmar: number;
   exposure: number;
+  /** Sum of the open positions' unrealized P&L (vs their entry), as a fraction of equity: the worst and the best moment. */
+  floating: { worst: number; worstAt: number; best: number; bestAt: number; worstPosition: number; bestPosition: number; maxOpen: number };
 }
 
 export function simulate(sleeves: Sleeve[], from: number, to: number): Result {
@@ -385,6 +387,7 @@ export function simulate(sleeves: Sleeve[], from: number, to: number): Result {
   let holdSum = 0;
   let expSum = 0;
   let steps = 0;
+  const floating = { worst: 0, worstAt: 0, best: 0, bestAt: 0, worstPosition: 0, bestPosition: 0, maxOpen: 0 };
   const mark = (p: Pos, t: number) => p.qty * p.t.closes[Math.min(Math.floor((t - p.t.at) / p.t.barMs), p.t.closes.length - 1)];
   const start = Math.ceil(from / step) * step;
   for (let t = start; t < to; t += step) {
@@ -421,6 +424,16 @@ export function simulate(sleeves: Sleeve[], from: number, to: number): Result {
     }
     peak = Math.max(peak, equity);
     maxDD = Math.min(maxDD, equity / peak - 1);
+    let float = 0;
+    for (const p of open) {
+      const pnl = mark(p, t) - p.qty * p.t.entry;
+      float += pnl;
+      floating.worstPosition = Math.min(floating.worstPosition, pnl / equity);
+      floating.bestPosition = Math.max(floating.bestPosition, pnl / equity);
+    }
+    if (float / equity < floating.worst) [floating.worst, floating.worstAt] = [float / equity, t];
+    if (float / equity > floating.best) [floating.best, floating.bestAt] = [float / equity, t];
+    floating.maxOpen = Math.max(floating.maxOpen, open.length);
     expSum += 1 - cash / equity;
     steps++;
   }
@@ -428,7 +441,7 @@ export function simulate(sleeves: Sleeve[], from: number, to: number): Result {
   const years = (to - from) / (365.25 * DAY);
   const cagr = Math.pow(Math.max(equity, 1e-9), 1 / years) - 1;
   const losses = n - wins;
-  return { trades: n, perYear: n / years, win: n ? wins / n : 0, avg: n ? sum / n : 0, payoff: wins && losses ? winSum / wins / (lossSum / losses) : 0, holdDays: n ? holdSum / n : 0, cagr, maxDD, calmar: maxDD < 0 ? cagr / -maxDD : 0, exposure: expSum / steps };
+  return { trades: n, perYear: n / years, win: n ? wins / n : 0, avg: n ? sum / n : 0, payoff: wins && losses ? winSum / wins / (lossSum / losses) : 0, holdDays: n ? holdSum / n : 0, cagr, maxDD, calmar: maxDD < 0 ? cagr / -maxDD : 0, exposure: expSum / steps, floating };
 }
 
 /* ───────────────────────────── report ───────────────────────────── */

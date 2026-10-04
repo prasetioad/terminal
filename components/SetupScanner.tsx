@@ -24,7 +24,7 @@ interface SetupScannerProps {
 }
 
 const SETUPS: readonly { key: ScanSetup; label: string; hint: string }[] = [
-  { key: "v1", label: "Setup v1.1 · Capitulation", hint: "Green dot × Stoch, many pairs at once" },
+  { key: "v1", label: "Setup v1.2 · Capitulation", hint: "First green dot × Stoch, many pairs at once" },
   { key: "a", label: "Setup A · Breakout", hint: "20-day high, 8×ATR trail, a coin trending on its own" },
 ];
 
@@ -64,13 +64,12 @@ export default function SetupScanner(props: SetupScannerProps) {
   const { setup, onSetupChange, unseen, result, status, stoch, onStochChange, notify, onToggleNotify, onOpen, onClose } = props;
   const [tab, setTab] = useState<ScanStatus | "all">("all");
   const [minLiquidity, setMinLiquidity] = useState<number>(SETUP_V1.minLiquidity30d);
-  const [confirmedOnly, setConfirmedOnly] = useState(true);
-  const [laggingOnly, setLaggingOnly] = useState(false);
+  const [botOnly, setBotOnly] = useState(true);
   const isA = setup === "a";
   // A result of the other setup can linger for a moment after switching.
   const current = result?.setup === setup ? result : null;
   const rows = (current?.rows ?? []).filter(
-    (r) => r.liquidity30d >= minLiquidity && (!isA || ((!confirmedOnly || r.passes) && (!laggingOnly || (r.rs30d !== null && r.rs30d < SETUP_A.maxRs)))),
+    (r) => r.liquidity30d >= minLiquidity && (!isA || !botOnly || r.passes),
   );
   const count = (key: ScanStatus | "all") => (key === "all" ? rows.length : rows.filter((r) => r.status === key).length);
   const shown = tab === "all" ? rows : rows.filter((r) => r.status === tab);
@@ -123,18 +122,12 @@ export default function SetupScanner(props: SetupScannerProps) {
             ))}
           </select>
           {isA ? (
-            <label className="flex items-center gap-1.5 font-mono text-[11px] text-slate-300">
-              <input type="checkbox" checked={confirmedOnly} onChange={(e) => setConfirmedOnly(e.target.checked)} className="accent-[#00E5FF]" />
-              Volume ≥ {SETUP_A.minSurge}× only (validated)
-            </label>
-          ) : null}
-          {isA ? (
             <label
               className="flex items-center gap-1.5 font-mono text-[11px] text-slate-300"
-              title="Research §4.12: breakouts of coins that trailed BTC by more than 10% over 30 days won ~47% of the time at ~+13% per trade, with far fewer stop-outs. Fewer trades; misses some big runners."
+              title="The bot's rules: volume ≥ 1.5× the 30-day average, and the coin trailed BTC by more than 10% over 30 days (research §4.12). Untick to see every breakout (faded)."
             >
-              <input type="checkbox" checked={laggingOnly} onChange={(e) => setLaggingOnly(e.target.checked)} className="accent-[#00E5FF]" />
-              RS &lt; {(SETUP_A.maxRs * 100).toFixed(0)}% only (lagged BTC)
+              <input type="checkbox" checked={botOnly} onChange={(e) => setBotOnly(e.target.checked)} className="accent-[#00E5FF]" />
+              Bot rules only (volume ≥ {SETUP_A.minSurge}× · RS &lt; {(SETUP_A.maxRs * 100).toFixed(0)}%)
             </label>
           ) : (
             <select aria-label="Stochastic" value={stoch} onChange={(e) => onStochChange(e.target.value as StochPreset)} className={select}>
@@ -212,14 +205,16 @@ export default function SetupScanner(props: SetupScannerProps) {
             : ""}
           {isA ? (
             <>
-              Rules (Setup A): the 4h close breaks above the 20-day high → long at the close; stop {SETUP_A.atrMult}×ATR; exit on a close below the chandelier (highest close −{" "}
-              {SETUP_A.atrMult}×ATR, tightened to {SETUP_A.spikeTighten.k}×ATR after an up-bar of ≥ {SETUP_A.spikeTighten.range}×ATR in profit); validated filter: volume ≥ {SETUP_A.minSurge}× the 30-day average. Survivorship-free backtest (653 pairs, 2021–2026, 0.5% risk per trade): ~30–35%
-              wins, winners ~3× losers, holds ~3 weeks; +12–20%/yr with −15 to −25% drawdowns in- and out-of-sample. Research only — not traded by the bot.
+              Rules (Setup A, as the bot trades it): the 4h close breaks above the 20-day high, volume ≥ {SETUP_A.minSurge}× the 30-day average and the coin trailed BTC by more than{" "}
+              {(-SETUP_A.maxRs * 100).toFixed(0)}% over 30 days → long at the close; stop {SETUP_A.atrMult}×ATR; exit on a close below the chandelier (highest close − {SETUP_A.atrMult}×ATR, tightened to{" "}
+              {SETUP_A.spikeTighten.k}×ATR after an up-bar of ≥ {SETUP_A.spikeTighten.range}×ATR in profit); 0.5% risk per trade. Survivorship-free backtest (653 pairs, 2021–2026): ~52% wins, winners
+              ~3× losers, holds ~2–4 weeks.
             </>
           ) : (
             <>
-              Rules (v1.1): green dot, then Stochastic crosses up from below 20 → long at the 4h close, only on bars where ≥ {SETUP_V1.minBreadth} pairs signal and the pair trades ≥
-              $1M/day; stop −15%; exit at the first red dot. Survivorship-free backtest (653 pairs incl. delisted, 2021–2026): ~60% wins, +1.9% / +3.6% per trade in- / out-of-sample.
+              Rules (v1.2, as the bot trades it): the first green dot of a drop, then Stochastic crosses up from below 20 → long at the 4h close, only on bars where ≥{" "}
+              {SETUP_V1.minBreadth} pairs signal (any dot) and the pair trades ≥ $1M/day; at most 5 entries (5% risk) per bar, 1% risk each; stop −15%; exit at the first red dot. Survivorship-free
+              backtest (653 pairs incl. delisted, 2021–2026): ~62% wins, +2.7% per trade. Both setups together: +27% / +34% a year, max drawdown −14% / −15% (in- / out-of-sample).
             </>
           )}{" "}
           Not financial advice.
@@ -237,10 +232,10 @@ function BreadthBanner({ result }: { result: ScanResult }) {
       aria-label="Breadth"
       className={`rounded border px-3 py-2 text-[11px] leading-relaxed ${ok ? "border-[#00FFA3]/40 bg-[#00FFA3]/5 text-[#00FFA3]" : "border-[#1E2631] text-slate-400"}`}
     >
-      <span className="font-semibold">Breadth {result.breadth}</span> — pairs with a new entry on this bar.{" "}
+      <span className="font-semibold">Breadth {result.breadth}</span> — pairs with a v1 signal on this bar.{" "}
       {ok
-        ? "Market-wide capitulation: Setup v1.1 takes these entries (most liquid first)."
-        : `Setup v1.1 trades only when ≥ ${SETUP_V1.minBreadth} pairs signal at once — isolated signals averaged ~0% on the full, survivorship-free universe.`}
+        ? "Market-wide capitulation: the bot takes the first-dot entries below (most liquid first, at most 5)."
+        : `Setup v1.2 trades only when ≥ ${SETUP_V1.minBreadth} pairs signal at once — isolated signals averaged ~0% on the full, survivorship-free universe.`}
     </div>
   );
 }
@@ -250,7 +245,7 @@ function BreakoutBanner({ result }: { result: ScanResult }) {
   const label = fg === null ? null : fearGreedLabel(fg);
   return (
     <div role="status" aria-label="Market" className="rounded border border-[#1E2631] px-3 py-2 text-[11px] leading-relaxed text-slate-400">
-      <span className="font-semibold text-slate-200">{result.breadth} confirmed breakout{result.breadth === 1 ? "" : "s"}</span> on this bar
+      <span className="font-semibold text-slate-200">{result.breadth} breakout{result.breadth === 1 ? "" : "s"} passing the bot&apos;s rules</span> on this bar
       {" · "}Fear &amp; Greed{" "}
       {fg === null || !label ? (
         <span>unavailable</span>

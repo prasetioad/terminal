@@ -349,6 +349,45 @@ Lalu **bot** yang mengeksekusi setup yang sudah terbukti, otomatis di Binance, d
 - Lebih baik dari "perketat setelah +100%" (§4.15: 1,57 │ 1,89).
 - **Status:** ✅ 2026-10-04 di engine bersama (`spikeTighten`, identik dengan riset 5.734/5.734), di bot (`A_SPIKE_TIGHTEN`, default mati; aktif di paper lokal), di indikator Setup A (aktif secara default) dan di scanner (kolom "Exit below").
 
+### 4.17 Dengan TP trailing lonjakan: apakah filter entry bisa dilonggarkan? (riset lokal)
+
+Gabungan v1.2 + Setup A dengan trailing lonjakan (§4.16). Filter RS Setup A dilonggarkan bertahap; v1 titik hijau pertama vs semua titik hijau. Calmar IS │ OOS (trade/tahun):
+
+| Setup A | v1 titik hijau pertama | v1 semua titik hijau |
+|---|---|---|
+| **RS < −10% (bot)** | **1,95 │ 2,25** (128/th, DD −13,5% / −14,7%) | 1,97 │ 2,22 |
+| RS < −7,5% | 1,77 │ 2,01 (136/th, DD −15%) | 1,66 │ 1,88 |
+| RS < −5% | 1,44 │ 2,03 | 1,43 │ 1,90 |
+| RS < −2,5% | 1,32 │ 1,84 | 1,29 │ 1,61 |
+| RS < 0% | 1,29 │ 1,53 (DD −18,5% / −19,9%) | 1,25 │ 1,32 |
+| Tanpa filter RS | 0,60 │ 1,81 (195/th, DD −24,6% / −16,7%) | 0,63 │ 1,53 |
+
+- **Makin longgar, makin buruk, hampir monoton di kedua periode.** Filter −10% tetap terbaik. Trailing lonjakan tidak menggantikan fungsi filter RS.
+- Per tahun (RS −10% → tanpa filter): 2023 +55,5% → +24,9%, 2024 +66,9% → +39,1%, tapi **2026 +5,6% → +29,0%**. Tahun ini koin pemimpin (yang sudah kuat) yang naik, jadi filter RS ketinggalan. Di tahun-tahun lain filter ini menang besar.
+- v1 titik hijau pertama vs semua titik hijau: hampir sama dengan TP baru (perbedaan kecil).
+- **Putusan:** filter RS < −10% dipertahankan. Kompromi kalau ingin lebih banyak peluang: −7,5% (Calmar sedikit lebih rendah, DD −15%).
+
+### 4.18 Memaksimalkan profit: re-entry, pyramiding, trailing 2×ATR, funding carry (riset lokal)
+
+`npx tsx research/maximize.ts` · `npx tsx research/carry.ts`. Pembanding: aturan bot saat ini (v1.2 titik hijau pertama + A RS < −10% + trailing lonjakan), gabungan **1,99 │ 2,29** (CAGR +26,9% / +33,7%, DD −13,5% / −14,7%). Mesin riset identik dengan `tp.ts` (5.734 breakout).
+
+| Eksperimen | Calmar IS │ OOS | CAGR IS / OOS | DD IS / OOS | Putusan |
+|---|---|---|---|---|
+| Re-entry di atas close tertinggi trade sebelumnya (≤ 30 hari) | 1,60 │ 2,24 | +24,5 / +34,3% | −15,3 / −15,3% | ❌ |
+| Re-entry di breakout baru tanpa filter RS/volume | 1,87 │ 2,29 | +25,4 / +34,6% | −13,5 / −15,1% | ❌ |
+| **Pyramiding di +1R, risiko 0,25%** (pilihan IS) | **2,31 │ 2,33** | **+33,1 / +39,0%** | −14,3 / −16,7% | ✅ kandidat (OOS hanya sedikit lebih baik) |
+| Pyramiding di +1R, risiko 0,5% | 2,13 │ 1,94 | +38,0 / +42,1% | −17,9 / −21,8% | ➖ terlalu agresif |
+| Pyramiding di +2R, risiko 0,25% / 0,5% | 1,91 / 1,62 │ 2,65 / 2,68 | +28,6–30,0 / +40,0–44,5% | −15–19 / −15–17% | ➖ tidak konsisten |
+| Trailing 2×ATR setelah volume ≥ 5× (usulan pemilik) | 1,48 │ 2,02 | +20,5 / +26,7% | −13,9 / −13,2% | ❌ terlalu rapat |
+| Trailing 2×ATR setelah range ≥ 3×ATR / naik ≥ 20% sehari | 1,72 / 1,90 │ 1,84 / 2,10 | | | ❌ 4×ATR tetap titik terbaik |
+| + Funding carry (entry ≥ 0,03% / 0,05%) | 1,94 / 2,03 │ 2,24 / 2,28 | | | ➖ netral |
+
+- **Funding carry berdiri sendiri:** per carry sangat aman (win 94–98%, rata-rata +3–5% modal, terburuk −1 s/d −3,5%), tapi peluangnya hampir hilang setelah 2021: 2021 +12–14%, 2024 +3–5%, 2025–2026 < +1% per tahun. Tidak sepadan dengan kerumitan akun futures saat ini.
+- **Pyramiding +1R 0,25% per tahun:** 2021 +12,3 → +12,8%, 2022 +18,9 → +18,0%, 2023 +55,5 → +62,1%, **2024 +66,9 → +121,7%**, 2025 +21,6 → +18,0%, 2026 +7,2 → +2,3%. Profit tambahan terkonsentrasi di tahun tren kuat; di tahun lemah sedikit lebih buruk. Untuk modal $300, posisi tambahan (sekitar 0,25% ÷ jarak ke trailing) sering di bawah minimal order Binance.
+- **Status:** belum ada yang dipasang.
+
+**Catatan: trailing dikunci (ratchet) atau tidak?** Chandelier = close tertinggi − k × ATR. Close tertinggi tidak pernah turun, tapi ATR naik saat volatilitas melonjak (sering saat harga jatuh), sehingga garis trailing bisa turun. Diuji versi yang hanya boleh naik (gabungan, Calmar IS │ OOS): tanpa trailing lonjakan 1,40 │ 1,76 → dikunci 1,45 │ 1,80 (sedikit lebih baik); **dengan trailing lonjakan (bot) 1,99 │ 2,29 → dikunci 1,83 │ 2,19 (lebih buruk)**, terutama 2024 (+66,9 → +55,2%). Setelah trailing dirapatkan ke 4×ATR, ruang dari ATR yang melebar justru mencegah exit terlalu cepat di guncangan setelah lonjakan. Tetap tidak dikunci.
+
 ## 5. Roadmap
 
 Setiap tahap punya hasil yang bisa langsung dipakai dan syarat lulus.
@@ -517,3 +556,5 @@ Exchange (Binance, Bybit, OKX, Coinbase, KuCoin, Deribit)
 - **2026-10-04:** Riset TP (§4.15): v1.2 tetap TP di titik merah pertama. Setup A: "perketat ke 5×ATR setelah +100%" dan "6×ATR, 10× kalau volume entry ≥ 3×" lebih baik di IS dan OOS. Exit volume klimaks gagal di gabungan.
 - **2026-10-04:** Usulan pemilik diuji (§4.16): merapatkan trailing Setup A ke 4×ATR setelah lonjakan (candle hijau ≥ 3×ATR) memperbaiki gabungan di IS dan OOS (Calmar 1,40 → 1,99 │ 1,76 → 2,29, DD −18 → −14/−15%). Seluruh 18 varian lebih baik atau setara.
 - **2026-10-04:** Trailing lonjakan §4.16 terpasang (engine, bot opsi `A_SPIKE_TIGHTEN`, indikator, scanner).
+- **2026-10-04:** Uji pelonggaran entry dengan TP baru (§4.17): filter RS −10% tetap terbaik; makin longgar makin buruk (kecuali 2026).
+- **2026-10-04:** Riset maksimalisasi (§4.18): re-entry, trailing 2×ATR, dan funding carry tidak membantu. Pyramiding Setup A di +1R (risiko 0,25%) menaikkan CAGR +27 → +33% (IS) dan +34 → +39% (OOS) dengan DD sedikit lebih dalam. Kandidat.

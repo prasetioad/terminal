@@ -37,9 +37,10 @@ export const setupV1Indicator: IndicatorDefinition = {
         { value: "14,3,3", label: "14,3,3" },
       ],
     },
+    { key: "firstDotOnly", label: "First green dot of a drop only (as the bot)", type: "boolean", default: true },
     { key: "showHistory", label: "Show past trades", type: "boolean", default: true },
   ],
-  summary: (p) => `Stoch ${p.stoch === "either" ? "5 or 14" : p.stoch} · stop −15%`,
+  summary: (p) => `Stoch ${p.stoch === "either" ? "5 or 14" : p.stoch}${p.firstDotOnly ? " · first dot" : ""} · stop −15%`,
 
   create(ctx, initial) {
     let params: IndicatorParams = initial;
@@ -49,7 +50,7 @@ export const setupV1Indicator: IndicatorDefinition = {
 
     const compute = (d: IndicatorData) => {
       data = d;
-      result = runSetupV1(d.candles, { stoch: params.stoch as StochPreset, intervalMs: d.intervalMs });
+      result = runSetupV1(d.candles, { stoch: params.stoch as StochPreset, intervalMs: d.intervalMs, firstDotOnly: Boolean(params.firstDotOnly) });
     };
 
     const paint = (scope: DrawScope) => {

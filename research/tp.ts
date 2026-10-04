@@ -76,6 +76,8 @@ export interface ExitA {
   turtle?: boolean; // exit on a close under the 10-day low instead of the chandelier
   /** Once a spike happens while in profit, tighten the chandelier to k: a 1-day gain, a tall up-bar (× ATR), or an up-bar on volume (× average). */
   spike?: { kind: "gain1d" | "range" | "volume"; level: number; k: number };
+  /** The chandelier only ever rises (a volatility jump cannot lower it). */
+  ratchet?: boolean;
 }
 
 export interface ExitV1 {
@@ -110,6 +112,7 @@ function holdA(p: Pair, s: number, x: ExitA): Held {
   let k = x.kIfSurge && surge >= x.kIfSurge.surge ? x.kIfSurge.k : x.k;
   const closes = [entry];
   let best = entry;
+  let level = Number.NEGATIVE_INFINITY; // the ratcheted chandelier
   for (let i = s + 1; i < c.length; i++) {
     const bar = c[i];
     const done = (px: number, reason: Reason): Held => {
@@ -118,7 +121,9 @@ function holdA(p: Pair, s: number, x: ExitA): Held {
     };
     if (bar.low <= stop) return done(Math.min(bar.open, stop), "stop");
     const inProfit = bar.close > entry * (1 + 2 * COST);
-    const trailHit = x.turtle ? bar.close < p.low10d[i] : bar.close < best - k * a.atr[i - 1];
+    const chandelier = best - k * a.atr[i - 1];
+    level = x.ratchet ? Math.max(level, chandelier) : chandelier;
+    const trailHit = x.turtle ? bar.close < p.low10d[i] : bar.close < level;
     if (trailHit) return done(bar.close, "exit");
     if (x.climax && inProfit && climaxBar(p, i, x.climax)) return done(bar.close, "exit");
     closes.push(bar.close);
