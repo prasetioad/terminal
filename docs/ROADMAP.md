@@ -558,3 +558,4 @@ Exchange (Binance, Bybit, OKX, Coinbase, KuCoin, Deribit)
 - **2026-10-04:** Trailing lonjakan §4.16 terpasang (engine, bot opsi `A_SPIKE_TIGHTEN`, indikator, scanner).
 - **2026-10-04:** Uji pelonggaran entry dengan TP baru (§4.17): filter RS −10% tetap terbaik; makin longgar makin buruk (kecuali 2026).
 - **2026-10-04:** Riset maksimalisasi (§4.18): re-entry, trailing 2×ATR, dan funding carry tidak membantu. Pyramiding Setup A di +1R (risiko 0,25%) menaikkan CAGR +27 → +33% (IS) dan +34 → +39% (OOS) dengan DD sedikit lebih dalam. Kandidat.
+- **2026-10-04:** VPS diperbarui ke bot gabungan (paper $300): v1.2 titik hijau pertama + Setup A (RS < −10%, trailing lonjakan), konfigurasi sama dengan bot lokal. Database v1.1 (9 siklus, tanpa trade) diarsipkan di `/opt/backups/archive-v1.1-final-2026-10-04.sqlite`. Scanner di web VPS ikut diperbarui.
