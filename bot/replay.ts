@@ -5,6 +5,7 @@
  *
  *   npx tsx bot/replay.ts [--days 365] [--pairs BTCUSDT,ETHUSDT,...]
  */
+import { runSetupA } from "../lib/setups/setupA";
 import { liquidity30d, runSetupV1 } from "../lib/setups/setupV1";
 import type { Candle } from "../lib/types";
 import { loadSeries } from "../research/data";
@@ -47,8 +48,8 @@ const silent: Notifier = { send: async () => {} };
 
 export interface ReplayResult {
   store: BotStore;
-  /** Engine trades the bot should have taken (fresh entries inside the window, liquid enough). */
-  expected: { symbol: string; entryTime: number; exitTime: number | null; reason: string | null }[];
+  /** Engine trades the bot should have taken (fresh entries inside the window, liquid enough; Setup A: confirmed). */
+  expected: { setup: "v1" | "a"; symbol: string; entryTime: number; exitTime: number | null; reason: string | null }[];
 }
 
 export async function replay(series: Map<string, Candle[]>, from: number, to: number, cfg: BotConfig): Promise<ReplayResult> {
@@ -63,11 +64,19 @@ export async function replay(series: Map<string, Candle[]>, from: number, to: nu
   }
   const expected: ReplayResult["expected"] = [];
   for (const [symbol, bars] of series) {
-    const r = runSetupV1(bars.filter((b) => b.time * 1000 <= to), { stoch: cfg.stoch, intervalMs: BAR_MS });
-    for (const t of [...r.trades, ...(r.open ? [r.open] : [])]) {
-      if (t.entryTime < from || t.entryTime > to) continue;
-      if (liquidity30d(bars, t.entryIndex, BAR_MS) < cfg.minLiquidity30d) continue;
-      expected.push({ symbol, entryTime: t.entryTime, exitTime: t.exitTime, reason: t.exitReason });
+    const window = bars.filter((b) => b.time * 1000 <= to);
+    const take = (setup: "v1" | "a", t: { entryTime: number; entryIndex: number; exitTime: number | null; exitReason: string | null }) => {
+      if (t.entryTime < from || t.entryTime > to) return;
+      if (liquidity30d(bars, t.entryIndex, BAR_MS) < cfg.minLiquidity30d) return;
+      expected.push({ setup, symbol, entryTime: t.entryTime, exitTime: t.exitTime, reason: t.exitReason });
+    };
+    if (cfg.setups.includes("v1")) {
+      const r = runSetupV1(window, { stoch: cfg.stoch, intervalMs: BAR_MS, firstDotOnly: cfg.firstDotOnly });
+      for (const t of [...r.trades, ...(r.open ? [r.open] : [])]) take("v1", t);
+    }
+    if (cfg.setups.includes("a")) {
+      const r = runSetupA(window, BAR_MS, { btc: series.get("BTCUSDT"), maxRs: cfg.maxRsA ?? undefined });
+      for (const t of [...r.trades, ...(r.open ? [r.open] : [])]) if (t.passes) take("a", t);
     }
   }
   return { store, expected };
@@ -86,24 +95,29 @@ async function main() {
   const to = last;
   const from = Math.floor((to - days * 86_400_000) / BAR_MS) * BAR_MS;
 
-  // 1) Fidelity: unconstrained sizing → the bot must take exactly the engine's trades.
+  // 1) Fidelity, per setup: unconstrained sizing → the bot must take exactly the engine's trades.
   // (breadth 1: the fidelity check covers execution; breadth is measured on the full universe in research/)
-  const wide = { ...loadConfig({ MODE: "paper" }), maxOpenPositions: 50, riskPerTrade: 0.0005, minLiquidity30d: 0, minBreadth: 1 };
-  const a = await replay(series, from, to, wide);
-  const taken = [...a.store.openPositions(), ...a.store.closedPositions(100_000)];
-  const key = (s: string, t: number) => `${s}|${t}`;
-  const takenKeys = new Set(taken.map((p) => key(p.symbol, p.signalTime)));
-  const missing = a.expected.filter((e) => !takenKeys.has(key(e.symbol, e.entryTime)));
-  const extra = taken.filter((p) => !a.expected.some((e) => key(e.symbol, e.entryTime) === key(p.symbol, p.signalTime)));
-  const exitMismatch = a.store.closedPositions(100_000).filter((p) => {
-    const e = a.expected.find((x) => key(x.symbol, x.entryTime) === key(p.symbol, p.signalTime));
-    return !e || e.reason !== p.exitReason;
-  });
-  console.log(`replay ${days}d · ${symbols.length} pairs · fidelity: engine ${a.expected.length} trades · bot ${taken.length} · missing ${missing.length} · extra ${extra.length} · exit mismatches ${exitMismatch.length}`);
+  for (const setup of ["v1", "a"] as const) {
+    const wide = { ...loadConfig({ ...process.env, MODE: "paper", SETUPS: setup }), maxOpenPositions: 50, maxOpenPositionsA: 50, riskPerTrade: 0.0005, riskPerTradeA: 0.0005, minLiquidity30d: 0, minBreadth: 1, maxRiskPerBar: 0, paperStartEquity: 1e6 };
+    const a = await replay(series, from, to, wide);
+    const taken = [...a.store.openPositions(), ...a.store.closedPositions(100_000)];
+    const key = (s: string, t: number) => `${s}|${t}`;
+    const takenKeys = new Set(taken.map((p) => key(p.symbol, p.signalTime)));
+    const expectedKeys = new Set(a.expected.map((e) => key(e.symbol, e.entryTime)));
+    const missing = a.expected.filter((e) => !takenKeys.has(key(e.symbol, e.entryTime)));
+    const extra = taken.filter((p) => !expectedKeys.has(key(p.symbol, p.signalTime)));
+    // The bot books a v1 signal exit as "signal" and a Setup A one as "trail"; both are the engine's non-stop exit.
+    const exitMismatch = a.store.closedPositions(100_000).filter((p) => {
+      const e = a.expected.find((x) => key(x.symbol, x.entryTime) === key(p.symbol, p.signalTime));
+      return !e || (e.reason === "stop") !== (p.exitReason === "stop");
+    });
+    console.log(`replay ${days}d · ${symbols.length} pairs · Setup ${setup} fidelity: engine ${a.expected.length} trades · bot ${taken.length} · missing ${missing.length} · extra ${extra.length} · exit mismatches ${exitMismatch.length}`);
+  }
 
-  // 2) The default configuration (1% risk, ≤15 positions, liquidity filter): what the paper bot would have done.
+  // 2) The configured setups and risk (bot/.env, e.g. SETUPS=v1,a): what the paper bot would have done.
   // 25 pairs rarely reach a breadth of 10, so this run shows the risk machinery with breadth off.
-  const b = await replay(series, from, to, { ...loadConfig({ MODE: "paper" }), minBreadth: 1 });
+  const configured = loadConfig({ ...process.env, MODE: "paper" });
+  const b = await replay(series, from, to, { ...configured, minBreadth: 1 });
   const closed = b.store.closedPositions(100_000);
   const rets = closed.map((p) => p.pnl! / p.cost);
   const curve = b.store.equityCurve(100_000);
@@ -113,10 +127,10 @@ async function main() {
     peak = Math.max(peak, c.equity);
     maxDD = Math.min(maxDD, c.equity / peak - 1);
   }
-  const startEq = loadConfig({ MODE: "paper" }).paperStartEquity;
+  const startEq = configured.paperStartEquity;
   const endEq = curve.at(-1)?.equity ?? startEq;
   console.log(
-    `default config · ${closed.length} closed (${b.store.openPositions().length} open) · win ${((100 * rets.filter((r) => r > 0).length) / Math.max(1, rets.length)).toFixed(0)}% · avg ${((100 * rets.reduce((x, y) => x + y, 0)) / Math.max(1, rets.length)).toFixed(2)}% · equity ${startEq} → ${endEq.toFixed(0)} (${(((endEq / startEq) - 1) * 100).toFixed(1)}%) · max drawdown ${(maxDD * 100).toFixed(1)}% (marked to market each bar)`,
+    `configured (${configured.setups.join("+")}, breadth off) · ${closed.length} closed (${b.store.openPositions().length} open) · win ${((100 * rets.filter((r) => r > 0).length) / Math.max(1, rets.length)).toFixed(0)}% · avg ${((100 * rets.reduce((x, y) => x + y, 0)) / Math.max(1, rets.length)).toFixed(2)}% · equity ${startEq} → ${endEq.toFixed(0)} (${(((endEq / startEq) - 1) * 100).toFixed(1)}%) · max drawdown ${(maxDD * 100).toFixed(1)}% (marked to market each bar)`,
   );
 }
 

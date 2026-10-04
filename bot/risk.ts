@@ -1,5 +1,5 @@
 import { SETUP_V1 } from "../lib/setups/setupV1";
-import type { BotConfig } from "./config";
+import type { BotConfig, SetupId } from "./config";
 import type { BotStore } from "./db";
 
 /**
@@ -10,22 +10,34 @@ import type { BotStore } from "./db";
 export interface SizeInput {
   equity: number;
   cash: number;
+  /** Open positions of this setup. */
   openPositions: number;
   minNotional: number;
+  /** Default: Setup v1 with its −15% stop. */
+  setup?: SetupId;
+  /** Fraction lost at the stop (Setup A: 8×ATR ÷ entry). Default: Setup v1's 15%. */
+  stopPct?: number;
+}
+
+/** Risk per trade and position count of a setup. */
+export function setupRules(cfg: BotConfig, setup: SetupId): { risk: number; maxOpen: number } {
+  return setup === "a" ? { risk: cfg.riskPerTradeA, maxOpen: cfg.maxOpenPositionsA } : { risk: cfg.riskPerTrade, maxOpen: cfg.maxOpenPositions };
 }
 
 export type SizeDecision = { ok: true; quote: number } | { ok: false; reason: string };
 
 /**
- * Risk-based size: losing `riskPerTrade` of equity at the −15% stop → quote = equity ×
- * risk ÷ 15% (1% → 6.7% of equity), capped per position and by free cash.
+ * Risk-based size: losing the setup's risk of equity at its stop → quote = equity × risk
+ * ÷ stop distance (v1: 1% at −15% → 6.7% of equity), capped per position and by free cash.
  */
 export function sizePosition(cfg: BotConfig, s: SizeInput): SizeDecision {
-  if (s.openPositions >= cfg.maxOpenPositions) return { ok: false, reason: `max ${cfg.maxOpenPositions} open positions` };
-  const byRisk = (s.equity * cfg.riskPerTrade) / SETUP_V1.stopPct;
+  const { risk, maxOpen } = setupRules(cfg, s.setup ?? "v1");
+  const stopPct = s.stopPct ?? SETUP_V1.stopPct;
+  if (s.openPositions >= maxOpen) return { ok: false, reason: `max ${maxOpen} open positions` };
+  const byRisk = (s.equity * risk) / stopPct;
   const quote = Math.min(byRisk, s.equity * cfg.maxPositionFraction, s.cash * 0.98);
-  // Leave room above the exchange minimum so the stop (sold after fees) is still a valid order.
-  if (quote < s.minNotional * 1.5) return { ok: false, reason: `size ${quote.toFixed(2)} USDT below the exchange minimum` };
+  // The stop, once hit, must still be a valid order (with a margin for fees and rounding).
+  if (quote * (1 - stopPct) < s.minNotional * 1.1) return { ok: false, reason: `size ${quote.toFixed(2)} USDT below the exchange minimum` };
   return { ok: true, quote };
 }
 

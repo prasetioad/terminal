@@ -1,7 +1,8 @@
 /**
- * Setup v1 bot — entry point.
+ * Setup bot — entry point.
  *
- *   npm run bot          (reads bot/.env; PAPER mode unless configured otherwise)
+ *   npm run bot                               (reads bot/.env; PAPER mode unless configured otherwise)
+ *   BOT_ENV_FILE=bot/.env.local npm run bot   (another configuration, e.g. a local experiment)
  *
  * See docs/BOT.md for configuration, the testnet → live path and deployment.
  */
@@ -11,12 +12,12 @@ import { BINANCE_SPOT, BinanceSpotBroker, BinanceSpotClient } from "./binance";
 import { PaperBroker, type Broker } from "./broker";
 import { loadConfig } from "./config";
 import { BotStore } from "./db";
-import { BotEngine, type Notifier } from "./engine";
+import { BotEngine, setupsName, type Notifier } from "./engine";
 import { BAR_MS, BinanceMarketData, SETTLE_MS, lastClosedBar } from "./market";
 import { ConsoleNotifier, TelegramNotifier } from "./telegram";
 
 try {
-  loadEnvFile("bot/.env");
+  loadEnvFile(process.env.BOT_ENV_FILE ?? "bot/.env");
 } catch {
   // no .env file: environment variables only
 }
@@ -39,9 +40,15 @@ const shutdown = new AbortController();
 const statusText = async () => {
   const s = await statusSnapshot(engine, nextRun);
   return [
-    `<b>Setup v1 bot · ${s.mode.toUpperCase()}</b>${s.paused ? " · ⏸ PAUSED" : ""}`,
+    `<b>${setupsName(cfg)} bot · ${s.mode.toUpperCase()}</b>${s.paused ? " · ⏸ PAUSED" : ""}`,
     `Equity ${s.equity.toFixed(2)} USDT (cash ${s.cash.toFixed(2)})`,
-    `Open ${s.openPositions}/${s.config.maxOpenPositions} · closed ${s.closedTrades}${s.winRate !== null ? ` · win ${(s.winRate * 100).toFixed(0)}% · avg ${(s.avgReturn! * 100).toFixed(2)}%` : ""}`,
+    `Open ${s.openPositions} · closed ${s.closedTrades}${s.winRate !== null ? ` · win ${(s.winRate * 100).toFixed(0)}% · avg ${(s.avgReturn! * 100).toFixed(2)}%` : ""}`,
+    ...(cfg.setups.length > 1
+      ? cfg.setups.map((id) => {
+          const x = s.bySetup![id]!;
+          return `· ${id === "a" ? "A" : "v1"}: open ${x.open} · closed ${x.closedTrades} · P&L ${x.totalPnl >= 0 ? "+" : ""}${x.totalPnl.toFixed(2)}`;
+        })
+      : []),
     `Realized P&L ${s.totalPnl >= 0 ? "+" : ""}${s.totalPnl.toFixed(2)} USDT`,
     s.nextRun ? `Next cycle ${new Date(s.nextRun).toISOString().slice(0, 16).replace("T", " ")} UTC` : "",
   ]
@@ -74,9 +81,10 @@ function schedule() {
 }
 
 async function start() {
-  console.log(`Setup v1 bot · mode ${cfg.mode.toUpperCase()} · stoch ${cfg.stoch} · risk ${(cfg.riskPerTrade * 100).toFixed(2)}%/trade · db ${cfg.dbPath}`);
+  const risks = cfg.setups.map((id) => (id === "a" ? `A ${(cfg.riskPerTradeA * 100).toFixed(2)}%` : `v1 ${(cfg.riskPerTrade * 100).toFixed(2)}%${cfg.maxRiskPerBar ? ` (≤ ${(cfg.maxRiskPerBar * 100).toFixed(0)}%/bar)` : ""}`));
+  console.log(`${setupsName(cfg)} bot · mode ${cfg.mode.toUpperCase()} · stoch ${cfg.stoch} · risk ${risks.join(", ")}/trade · db ${cfg.dbPath}`);
   store.log("info", "start", `mode ${cfg.mode}`);
-  await notifier.send(`🤖 Setup v1 bot started · <b>${cfg.mode.toUpperCase()}</b>`).catch(() => {});
+  await notifier.send(`🤖 ${setupsName(cfg)} bot started · <b>${cfg.mode.toUpperCase()}</b>`).catch(() => {});
 
   const api = startApi(engine, () => nextRun);
   const reconcile = cfg.mode === "paper" ? undefined : setInterval(() => void engine.reconcile(), 60_000);

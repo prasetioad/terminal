@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
+import type { SetupId } from "./config";
 
 /**
  * The bot's state: positions, an event log and equity snapshots, in SQLite. Schema
@@ -8,10 +9,13 @@ import Database from "better-sqlite3";
  */
 
 export type PositionStatus = "open" | "closed";
-export type ExitReason = "signal" | "stop" | "manual" | "flatten";
+/** signal: v1 first red dot · trail: Setup A chandelier · stop: the resting stop. */
+export type ExitReason = "signal" | "trail" | "stop" | "manual" | "flatten";
 
 export interface Position {
   id: number;
+  /** Which setup opened it (one position per pair across setups). */
+  setup: SetupId;
   symbol: string;
   /** Bar the setup entered on (ms) — with the symbol, the idempotency key of an entry. */
   signalTime: number;
@@ -68,10 +72,13 @@ const MIGRATIONS: readonly string[] = [
    CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, time INTEGER NOT NULL, level TEXT NOT NULL, kind TEXT NOT NULL, message TEXT NOT NULL);
    CREATE TABLE equity (time INTEGER PRIMARY KEY, equity REAL NOT NULL, cash REAL NOT NULL, open_positions INTEGER NOT NULL);
    CREATE TABLE kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);`,
+  // v2: several setups on one account
+  `ALTER TABLE positions ADD COLUMN setup TEXT NOT NULL DEFAULT 'v1';`,
 ];
 
 const toPosition = (r: Record<string, unknown>): Position => ({
   id: r.id as number,
+  setup: r.setup as SetupId,
   symbol: r.symbol as string,
   signalTime: r.signal_time as number,
   status: r.status as PositionStatus,
@@ -132,10 +139,10 @@ export class BotStore {
   insertPosition(p: Omit<Position, "id" | "status" | "exitPrice" | "exitFee" | "proceeds" | "exitReason" | "closedAt" | "pnl">): Position {
     const info = this.db
       .prepare(
-        `INSERT INTO positions (symbol, signal_time, status, qty, entry_price, entry_fee, cost, stop_price, stop_order_id, opened_at)
-         VALUES (?, ?, 'open', ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO positions (setup, symbol, signal_time, status, qty, entry_price, entry_fee, cost, stop_price, stop_order_id, opened_at)
+         VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(p.symbol, p.signalTime, p.qty, p.entryPrice, p.entryFee, p.cost, p.stopPrice, p.stopOrderId, p.openedAt);
+      .run(p.setup, p.symbol, p.signalTime, p.qty, p.entryPrice, p.entryFee, p.cost, p.stopPrice, p.stopOrderId, p.openedAt);
     return toPosition(this.db.prepare("SELECT * FROM positions WHERE id = ?").get(info.lastInsertRowid) as Record<string, unknown>);
   }
 

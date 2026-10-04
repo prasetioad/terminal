@@ -1,5 +1,8 @@
 import { SETUP_V1, type StochPreset } from "../lib/setups/setupV1";
 
+/** Strategies the bot can run side by side on one account: Setup v1 (capitulation) and Setup A (breakout). */
+export type SetupId = "v1" | "a";
+
 /**
  * Bot configuration, from the environment (see bot/.env.example).
  *
@@ -16,11 +19,24 @@ export const LIVE_CONFIRM_PHRASE = "I_UNDERSTAND_THIS_TRADES_REAL_MONEY";
 
 export interface BotConfig {
   mode: Mode;
+  /** Setups traded, sharing one account (docs/ROADMAP.md §4.10). */
+  setups: SetupId[];
   stoch: StochPreset;
-  /** Fraction of equity lost if the −15% stop is hit (sizes every position). */
+  /** Setup v1: fraction of equity lost if the −15% stop is hit (sizes every v1 position). */
   riskPerTrade: number;
+  /** Setup v1.2: cap on the risk of all v1 entries taken on one bar (0 = off, v1.1). */
+  maxRiskPerBar: number;
+  /** Setup v1: skip a second green dot of the same drop (§4.12). */
+  firstDotOnly: boolean;
+  /** Setup A: fraction of equity lost at its 8×ATR stop. */
+  riskPerTradeA: number;
+  /** Setup A: open positions at most; at most 5 entries per bar (≤ 5 × its risk, as in the research). */
+  maxOpenPositionsA: number;
+  /** Setup A: take only coins whose 30-day return trails BTC's by more than this (e.g. −0.1); null = off (§4.12). */
+  maxRsA: number | null;
   /** Cap on a single position, as a fraction of equity. */
   maxPositionFraction: number;
+  /** Setup v1: open positions at most. */
   maxOpenPositions: number;
   /** Setup v1.1: trade a bar only when at least this many pairs signal at once. */
   minBreadth: number;
@@ -49,6 +65,14 @@ const num = (env: Env, key: string, fallback: number, min: number, max: number):
   return v;
 };
 
+const bool = (env: Env, key: string, fallback: boolean): boolean => {
+  const raw = env[key]?.trim().toLowerCase();
+  if (raw === undefined || raw === "") return fallback;
+  if (["1", "true", "yes", "on"].includes(raw)) return true;
+  if (["0", "false", "no", "off"].includes(raw)) return false;
+  throw new Error(`${key} must be 1/0 (true/false), got "${env[key]}"`);
+};
+
 const str = (env: Env, key: string): string | null => {
   const v = env[key]?.trim();
   return v ? v : null;
@@ -63,10 +87,21 @@ export function loadConfig(env: Env = process.env): BotConfig {
   const stoch = env.STOCH ?? "either";
   if (stoch !== "either" && stoch !== "5,3,3" && stoch !== "14,3,3") throw new Error(`STOCH must be either, 5,3,3 or 14,3,3`);
 
+  const setups = (env.SETUPS ?? "v1").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+  if (!setups.length || setups.some((x) => x !== "v1" && x !== "a") || new Set(setups).size !== setups.length) {
+    throw new Error(`SETUPS must list v1 and/or a (e.g. "v1,a"), got "${env.SETUPS}"`);
+  }
+
   const config: BotConfig = {
     mode,
+    setups: setups as SetupId[],
     stoch,
     riskPerTrade: num(env, "RISK_PER_TRADE", 0.01, 0.0005, 0.05),
+    maxRiskPerBar: num(env, "MAX_RISK_PER_BAR", 0, 0, 1),
+    firstDotOnly: bool(env, "V1_FIRST_DOT_ONLY", false),
+    riskPerTradeA: num(env, "RISK_PER_TRADE_A", 0.005, 0.0005, 0.05),
+    maxOpenPositionsA: num(env, "MAX_OPEN_POSITIONS_A", 15, 1, 50),
+    maxRsA: env.A_MAX_RS === undefined || env.A_MAX_RS.trim() === "" ? null : num(env, "A_MAX_RS", 0, -1, 1),
     maxPositionFraction: num(env, "MAX_POSITION_FRACTION", 0.1, 0.01, 0.5),
     maxOpenPositions: num(env, "MAX_OPEN_POSITIONS", 15, 1, 50),
     minBreadth: num(env, "MIN_BREADTH", SETUP_V1.minBreadth, 1, 500),

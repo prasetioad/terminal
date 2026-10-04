@@ -1,4 +1,4 @@
-# Bot Setup v1: panduan
+# Bot Setup v1 + Setup A: panduan
 
 Bot ini menjalankan **Setup v1** (MaxFlow+ × Stoch long, 4h) secara otomatis di Binance Spot, memakai **engine yang sama persis** dengan riset, chart, dan scanner (`lib/setups/setupV1.ts`). Latar belakang dan hasil riset ada di [ROADMAP.md](ROADMAP.md).
 
@@ -24,6 +24,28 @@ setiap menit (testnet/live): cek stop yang terisi dan posisi yang dijual manual
 - **Ukuran posisi:** `risiko × equity ÷ 15%`. Risiko 1% berarti posisi 6,7% dari equity, dibatasi `MAX_POSITION_FRACTION` dan kas yang tersedia.
 - **P&L** dihitung dari arus kas aktual (USDT keluar dan masuk, sudah termasuk fee), bukan dari harga teoretis.
 - **Entry yang terlewat tidak dikejar.** Kalau bot mati saat sebuah sinyal muncul, sinyal itu dilewatkan. Sesuai backtest, hanya entry di close bar sinyal yang diambil.
+
+## 1b. Beberapa setup dalam satu akun (v1.2 + Setup A)
+
+Bot bisa menjalankan **Setup v1** (kapitulasi) dan **Setup A** (breakout) bersamaan dengan modal bersama, sesuai hasil riset di [ROADMAP.md §4.10](ROADMAP.md).
+
+| Variabel | Arti | Default |
+|---|---|---|
+| `SETUPS` | `v1`, `a`, atau `v1,a` | `v1` |
+| `MAX_RISK_PER_BAR` | v1.2: total risiko entry v1 dalam satu candle, misalnya `0.05` (maksimal 5 posisi 1%) | `0` (mati, v1.1) |
+| `RISK_PER_TRADE_A` | Risiko per trade Setup A di stop 8×ATR (sekitar 20% → posisi sekitar 2,5%) | `0.005` |
+| `MAX_OPEN_POSITIONS_A` | Batas posisi Setup A | `15` |
+| `V1_FIRST_DOT_ONLY` | §4.12: v1 hanya di titik hijau pertama dalam satu penurunan (titik hijau berikutnya dalam 30 candle dilewati) | `0` (mati) |
+| `A_MAX_RS` | §4.12: Setup A hanya untuk koin yang return 30 harinya tertinggal dari BTC lebih dari nilai ini, misalnya `-0.1` | kosong (mati) |
+
+- Satu pair hanya punya satu posisi, dari setup mana pun. Kandidat kedua setup diurutkan dari yang paling likuid, seperti di riset. Setup A maksimal 5 entry per candle.
+- **Exit Setup A:** stop awal 8×ATR dipasang di exchange, lalu trailing (close tertinggi − 8×ATR) dicek di setiap close 4h dan dijual market kalau tertembus.
+- Order id Setup A memakai prefix `sva-`, sedangkan v1 tetap `sv1-`.
+- Filter RS membutuhkan candle BTCUSDT di setiap siklus. Kalau BTC gagal diambil, entry Setup A di siklus itu dilewati (dan dicatat sebagai error). Posisi yang sudah ada tetap dikelola. Breakout yang tidak lolos filter tetap "menempati" pair, persis seperti di riset.
+- Posisi v1 yang dibuka sebelum `V1_FIRST_DOT_ONLY` dinyalakan tetap dikelola dengan aturan saat posisi itu dibuka.
+- **Modal minimum:** posisi Setup A sekitar 2,5% modal, dan stop-nya harus tetap ≥ minimal order Binance ($5, plus margin 10%). Di bawah sekitar $300, sebagian sinyal Setup A dilewati dengan alasan "below the exchange minimum".
+- **Eksperimen lokal:** `npm run bot:local` membaca `bot/.env.local` (v1.2 + A, paper $300, DB `bot/data/combined.sqlite`, tanpa Telegram karena token Telegram dipakai bot VPS).
+- `npm run bot:replay -- --days 365` menguji fidelity per setup. Hasil wajib: missing 0 · extra 0 · exit mismatches 0.
 
 ## 2. Menjalankan secara lokal (paper)
 

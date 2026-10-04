@@ -53,7 +53,7 @@ export default function BotPanel({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <Modal title="Setup v1 bot" onClose={onClose} width="max-w-4xl">
+    <Modal title="Trading bot" onClose={onClose} width="max-w-4xl">
       <div className="flex flex-col gap-4 p-4 font-mono text-xs">
         {!state && <p className="text-slate-500">Connecting to the bot…</p>}
         {state && "error" in state && (
@@ -75,8 +75,14 @@ function Dashboard({ status: s, open, trades, onToggle }: { status: StatusSnapsh
       <div className="flex flex-wrap items-center gap-2">
         <span className={`rounded px-2 py-0.5 text-[11px] font-bold uppercase ${MODE_STYLE[s.mode]}`}>{s.mode}</span>
         {s.paused ? <span className="rounded bg-amber-400/15 px-2 py-0.5 text-[11px] text-amber-300">PAUSED · entries off</span> : <span className="rounded bg-[#00FFA3]/10 px-2 py-0.5 text-[11px] text-[#00FFA3]">RUNNING</span>}
+        <span className="font-semibold text-slate-200">{s.setupsName ?? "Setup v1.1"}</span>
         <span className="text-slate-500">
-          Stoch {s.stoch} · risk {(s.config.riskPerTrade * 100).toFixed(2)}%/trade · max {s.config.maxOpenPositions} positions · breadth ≥ {s.config.minBreadth} · 30d liquidity ≥ ${(s.config.minLiquidity30d / 1e6).toFixed(1)}M
+          v1: stoch {s.stoch} · risk {(s.config.riskPerTrade * 100).toFixed(2)}% · max {s.config.maxOpenPositions} · breadth ≥ {s.config.minBreadth}
+          {s.config.maxRiskPerBar ? ` · ≤ ${(s.config.maxRiskPerBar * 100).toFixed(0)}%/bar` : ""}
+          {s.config.firstDotOnly ? " · first dot only" : ""}
+          {s.setups?.includes("a") && s.config.riskPerTradeA !== undefined ? ` · A: risk ${(s.config.riskPerTradeA * 100).toFixed(2)}% · max ${s.config.maxOpenPositionsA}` : ""}
+          {s.setups?.includes("a") && s.config.maxRsA != null ? ` · RS < ${(s.config.maxRsA * 100).toFixed(0)}%` : ""} · 30d liquidity ≥ $
+          {(s.config.minLiquidity30d / 1e6).toFixed(1)}M
         </span>
         <button
           type="button"
@@ -97,19 +103,33 @@ function Dashboard({ status: s, open, trades, onToggle }: { status: StatusSnapsh
         />
         <Stat label="Next cycle" value={s.nextRun ? time(s.nextRun) : "—"} sub={s.lastBar ? `last bar ${time(s.lastBar)}` : undefined} />
       </div>
+      {s.bySetup && Object.keys(s.bySetup).length > 1 && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {Object.entries(s.bySetup).map(([id, x]) => (
+            <Stat
+              key={id}
+              label={id === "a" ? "Setup A · breakout" : "Setup v1 · capitulation"}
+              value={`${x.totalPnl >= 0 ? "+" : ""}${usd(x.totalPnl)} USDT`}
+              sub={`${x.open} open · ${x.closedTrades} closed${x.winRate !== null ? ` · win ${(x.winRate * 100).toFixed(0)}% · avg ${pct(x.avgReturn!)}` : ""}`}
+              tone={x.totalPnl}
+            />
+          ))}
+        </div>
+      )}
       <p className="text-[11px] text-slate-500">
-        Backtest reference (99 pairs, out-of-sample): about 59% wins and +1–2% per trade before the bot&apos;s extra fees. A live record needs ~40+ trades before
-        it can be compared meaningfully.
+        Backtest reference (653 pairs, out-of-sample): v1 about 60% wins, +2% per trade; Setup A about 30–35% wins with winners ~3× losers. A live record needs ~40+
+        trades per setup before it can be compared meaningfully.
       </p>
 
       <Section title={`Open positions (${open.length})`}>
         {open.length === 0 ? (
           <Empty text="No open positions" />
         ) : (
-          <Table head={["Pair", "Opened", "Entry", "Stop −15%", "Qty", "Cost"]}>
+          <Table head={["Pair", "Setup", "Opened", "Entry", "Stop", "Qty", "Cost"]}>
             {open.map((p) => (
               <tr key={p.id} className="border-b border-[#1E2631]/60">
                 <td className="px-3 py-1.5 text-slate-100">{p.symbol.replace(/USDT$/, "")}</td>
+                <td className="px-2 py-1.5 text-slate-400">{p.setup === "a" ? "A" : "v1"}</td>
                 <td className="px-2 py-1.5 text-slate-400">{time(p.openedAt)}</td>
                 <td className="px-2 py-1.5 text-right">{price(p.entryPrice)}</td>
                 <td className="px-2 py-1.5 text-right text-[#FF2D55]/80">{price(p.stopPrice)}</td>
@@ -125,10 +145,11 @@ function Dashboard({ status: s, open, trades, onToggle }: { status: StatusSnapsh
         {trades.length === 0 ? (
           <Empty text="No closed trades yet" />
         ) : (
-          <Table head={["Pair", "Closed", "Exit", "Reason", "P&L", "Return"]}>
+          <Table head={["Pair", "Setup", "Closed", "Exit", "Reason", "P&L", "Return"]}>
             {trades.slice(0, 50).map((p) => (
               <tr key={p.id} className="border-b border-[#1E2631]/60">
                 <td className="px-3 py-1.5 text-slate-100">{p.symbol.replace(/USDT$/, "")}</td>
+                <td className="px-2 py-1.5 text-slate-400">{p.setup === "a" ? "A" : "v1"}</td>
                 <td className="px-2 py-1.5 text-slate-400">{time(p.closedAt!)}</td>
                 <td className="px-2 py-1.5 text-right">{price(p.exitPrice!)}</td>
                 <td className="px-2 py-1.5 text-right text-slate-400">{p.exitReason}</td>

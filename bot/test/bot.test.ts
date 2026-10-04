@@ -4,6 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { runSetupA } from "../../lib/setups/setupA";
 import { runSetupV1 } from "../../lib/setups/setupV1";
 import type { Candle } from "../../lib/types";
 import { BinanceApiError, BinanceSpotBroker, BinanceSpotClient, floorToStep, sign } from "../binance";
@@ -40,6 +41,26 @@ describe("config", () => {
   });
   it("needs API keys outside paper", () => assert.throws(() => loadConfig({ MODE: "testnet" }), /BINANCE_API_KEY/));
   it("rejects out-of-range risk", () => assert.throws(() => loadConfig({ RISK_PER_TRADE: "0.5" }), /RISK_PER_TRADE/));
+  it("runs Setup v1 alone with v1.1 rules unless told otherwise", () => {
+    const c = loadConfig({});
+    assert.deepEqual(c.setups, ["v1"]);
+    assert.equal(c.maxRiskPerBar, 0);
+  });
+  it("keeps the entry improvements off unless switched on", () => {
+    const c = loadConfig({});
+    assert.equal(c.firstDotOnly, false);
+    assert.equal(c.maxRsA, null);
+    const on = loadConfig({ V1_FIRST_DOT_ONLY: "1", A_MAX_RS: "-0.1" });
+    assert.equal(on.firstDotOnly, true);
+    assert.equal(on.maxRsA, -0.1);
+    assert.throws(() => loadConfig({ V1_FIRST_DOT_ONLY: "maybe" }), /V1_FIRST_DOT_ONLY/);
+  });
+  it("parses and validates the setups", () => {
+    assert.deepEqual(loadConfig({ SETUPS: "v1, a" }).setups, ["v1", "a"]);
+    assert.deepEqual(loadConfig({ SETUPS: "a" }).setups, ["a"]);
+    assert.throws(() => loadConfig({ SETUPS: "v1,b" }), /SETUPS/);
+    assert.throws(() => loadConfig({ SETUPS: "a,a" }), /SETUPS/);
+  });
 });
 
 describe("risk", () => {
@@ -53,6 +74,14 @@ describe("risk", () => {
     assert.ok(d.ok && Math.abs(d.quote - 98) < 1e-9);
     assert.equal(sizePosition(cfg, { equity: 10_000, cash: 10_000, openPositions: 15, minNotional: 5 }).ok, false);
     assert.equal(sizePosition(cfg, { equity: 100, cash: 100, openPositions: 0, minNotional: 10 }).ok, false); // 6.67 < 15
+  });
+  it("sizes Setup A by its own stop and risk, and keeps its stop a valid order", () => {
+    const a = loadConfig({ SETUPS: "v1,a" });
+    const d = sizePosition(a, { equity: 300, cash: 300, openPositions: 0, minNotional: 5, setup: "a", stopPct: 0.2 });
+    assert.ok(d.ok && Math.abs(d.quote - 7.5) < 1e-9); // 0.5% of 300 at a −20% stop
+    // 250 × 0.5% ÷ 20% = 6.25 → the stop would sell 5.00 < 5.50: refused
+    assert.equal(sizePosition(a, { equity: 250, cash: 250, openPositions: 0, minNotional: 5, setup: "a", stopPct: 0.2 }).ok, false);
+    assert.equal(sizePosition(a, { equity: 1e4, cash: 1e4, openPositions: 15, minNotional: 5, setup: "a", stopPct: 0.2 }).ok, false);
   });
   it("blocks entries past the daily loss limit, and when paused", () => {
     const store = new BotStore(":memory:");
@@ -70,7 +99,7 @@ describe("risk", () => {
 describe("store and paper broker", () => {
   it("never records the same signal twice", () => {
     const store = new BotStore(":memory:");
-    const p = { symbol: "BTCUSDT", signalTime: 1, qty: 1, entryPrice: 100, entryFee: 0.1, cost: 100, stopPrice: 85, stopOrderId: null, openedAt: 1 };
+    const p = { setup: "v1" as const, symbol: "BTCUSDT", signalTime: 1, qty: 1, entryPrice: 100, entryFee: 0.1, cost: 100, stopPrice: 85, stopOrderId: null, openedAt: 1 };
     store.insertPosition(p);
     assert.equal(store.hasSignal("BTCUSDT", 1), true);
     assert.throws(() => store.insertPosition(p), /UNIQUE/);
@@ -80,7 +109,7 @@ describe("store and paper broker", () => {
     const store = new BotStore(":memory:");
     const broker = new PaperBroker(store, 1000, 0.001, 0.0005);
     const buy = await broker.buy("X", 100, 10, "e");
-    const pos = store.insertPosition({ symbol: "X", signalTime: 1, qty: buy.qty, entryPrice: buy.price, entryFee: buy.fee, cost: buy.quote, stopPrice: 8.5, stopOrderId: null, openedAt: 1 });
+    const pos = store.insertPosition({ setup: "v1", symbol: "X", signalTime: 1, qty: buy.qty, entryPrice: buy.price, entryFee: buy.fee, cost: buy.quote, stopPrice: 8.5, stopOrderId: null, openedAt: 1 });
     const sell = await broker.sell("X", pos.qty, 10, "x");
     const done = store.closePosition(pos.id, { price: sell.price, fee: sell.fee, proceeds: sell.quote, reason: "signal", time: 2 });
     const expected = 100 * (1 - 0.001) / (10 * 1.0005) * 10 * 0.9995 * (1 - 0.001) - 100;
@@ -245,5 +274,121 @@ describe("engine", () => {
     assert.equal(store.openPositions().length, 0);
     assert.equal(sells.length, 1, "the entry was sold back");
     assert.match(report.errors.join(" "), /entry reversed/);
+  });
+});
+
+describe("engine with several setups", () => {
+  const base = syntheticSeries(1500, 7);
+  // A volume-confirmed Setup A breakout: lift the last day's volume before the first breakout.
+  const first = runSetupA(base, BAR_MS).trades[0];
+  const bars = base.map((c, i) => (i > first.entryIndex - 6 && i <= first.entryIndex ? { ...c, volume: c.volume * 3 } : c));
+  const breakout = runSetupA(bars, BAR_MS).trades.find((t) => t.entryIndex === first.entryIndex)!;
+  const cfgA = { ...loadConfig({ SETUPS: "a" }), minLiquidity30d: 0 };
+
+  it("enters a confirmed breakout with its ATR stop, and exits it as the setup does", async () => {
+    assert.ok(breakout?.passes, "fixture: a confirmed breakout");
+    const market = new ReplayMarketData(new Map([["TESTUSDT", bars]]));
+    const store = new BotStore(":memory:");
+    let clock = 0;
+    const engine = new BotEngine(cfgA, store, market, new PaperBroker(store, 10_000, 0.001, 0), { send: async () => {} }, () => clock);
+    const at = (i: number) => bars[i].time * 1000;
+    market.current = at(breakout.entryIndex);
+    clock = at(breakout.entryIndex) + BAR_MS;
+    await engine.runCycle(at(breakout.entryIndex));
+    const [pos] = store.openPositions();
+    assert.equal(pos?.setup, "a");
+    assert.ok(Math.abs(pos.stopPrice / pos.entryPrice - breakout.stopPrice / breakout.entryPrice) < 1e-12);
+    for (let i = breakout.entryIndex + 1; i <= breakout.exitIndex!; i++) {
+      market.current = at(i);
+      clock = at(i) + BAR_MS;
+      await engine.runCycle(at(i));
+    }
+    const [done] = store.closedPositions();
+    assert.equal(store.openPositions().length, 0);
+    assert.equal(done.exitReason, breakout.exitReason);
+    if (breakout.exitReason === "trail") assert.ok(Math.abs(done.exitPrice! - breakout.exitPrice!) < 1e-9);
+  });
+
+  it("caps the v1 risk taken on one bar (v1.2)", async () => {
+    const v1 = syntheticSeries(1500, 7);
+    const signal = runSetupV1(v1, { stoch: "either", intervalMs: BAR_MS }).trades[0];
+    const series = new Map(Array.from({ length: 8 }, (_, k) => [`T${k}USDT`, v1] as const));
+    const market = new ReplayMarketData(series);
+    const barTime = v1[signal.entryIndex].time * 1000;
+    market.current = barTime;
+    const store = new BotStore(":memory:");
+    const cfg = { ...loadConfig({ MAX_RISK_PER_BAR: "0.05" }), minLiquidity30d: 0, minBreadth: 1 };
+    const engine = new BotEngine(cfg, store, market, new PaperBroker(store, 10_000, 0.001, 0), { send: async () => {} }, () => barTime + BAR_MS);
+    const report = await engine.runCycle(barTime);
+    assert.equal(report.breadth, 8);
+    assert.equal(store.openPositions().length, 5); // 5 × 1% = the 5% cap
+    assert.equal(report.skipped.filter((x) => /per-bar risk cap/.test(x)).length, 3);
+  });
+
+  it("keeps one position per pair across setups", async () => {
+    const store = new BotStore(":memory:");
+    store.insertPosition({ setup: "v1", symbol: "TESTUSDT", signalTime: 1, qty: 1, entryPrice: 1, entryFee: 0, cost: 1, stopPrice: 0.85, stopOrderId: null, openedAt: 1 });
+    const market = new ReplayMarketData(new Map([["TESTUSDT", bars]]));
+    const t = bars[breakout.entryIndex].time * 1000;
+    market.current = t;
+    const engine = new BotEngine(cfgA, store, market, new PaperBroker(store, 10_000, 0.001, 0), { send: async () => {} }, () => t + BAR_MS);
+    await engine.runCycle(t);
+    assert.equal(store.openPositions().length, 1);
+    assert.equal(store.openPositions()[0].setup, "v1");
+  });
+});
+
+describe("entry improvements", () => {
+  const base = syntheticSeries(1500, 7);
+  const first = runSetupA(base, BAR_MS).trades[0];
+  const bars = base.map((c, i) => (i > first.entryIndex - 6 && i <= first.entryIndex ? { ...c, volume: c.volume * 3 } : c));
+  // BTC that outran the pair by far (the pair lagged → passes) and BTC identical to it (rs 0 → filtered).
+  const strongBtc = bars.map((c, i) => ({ ...c, close: c.close * 1.004 ** i, open: c.open * 1.004 ** i, high: c.high * 1.004 ** i, low: c.low * 1.004 ** i }));
+
+  it("Setup A's relative-strength filter only changes which breakouts pass, never the trade sequence", () => {
+    const plain = runSetupA(bars, BAR_MS);
+    const lagging = runSetupA(bars, BAR_MS, { btc: strongBtc, maxRs: -0.1 });
+    const same = runSetupA(bars, BAR_MS, { btc: bars, maxRs: -0.1 });
+    assert.deepEqual(lagging.trades.map((t) => t.entryIndex), plain.trades.map((t) => t.entryIndex));
+    const t = lagging.trades.find((x) => x.entryIndex === first.entryIndex)!;
+    assert.ok(t.rs !== null && t.rs < -0.1 && t.passes);
+    const u = same.trades.find((x) => x.entryIndex === first.entryIndex)!;
+    assert.ok(Math.abs(u.rs!) < 1e-12 && !u.passes);
+    assert.ok(runSetupA(bars, BAR_MS, { maxRs: -0.1 }).trades.every((x) => x.rs === null && !x.passes), "no BTC → nothing passes the RS filter");
+  });
+
+  it("the bot skips a breakout of a coin that did not lag BTC, and takes it when it did", async () => {
+    const at = bars[first.entryIndex].time * 1000;
+    for (const [btc, expected] of [[bars, 0], [strongBtc, 1]] as const) {
+      const market = new ReplayMarketData(new Map([["TESTUSDT", bars], ["BTCUSDT", btc]]));
+      market.current = at;
+      const store = new BotStore(":memory:");
+      const cfg = { ...loadConfig({ SETUPS: "a", A_MAX_RS: "-0.1" }), minLiquidity30d: 0 };
+      const engine = new BotEngine(cfg, store, market, new PaperBroker(store, 10_000, 0.001, 0), { send: async () => {} }, () => at + BAR_MS);
+      await engine.runCycle(at);
+      assert.equal(store.openPositions().filter((p) => p.symbol === "TESTUSDT").length, expected);
+    }
+  });
+
+  it("with first dot only, breadth still counts every v1 signal (as in the research)", async () => {
+    // A pair whose signal is a second dot, next to pairs whose signal is a first dot, on the same bar.
+    const v1 = syntheticSeries(1500, 7);
+    const all = runSetupV1(v1, { stoch: "either", intervalMs: BAR_MS }).trades;
+    const firsts = new Set(runSetupV1(v1, { stoch: "either", intervalMs: BAR_MS, firstDotOnly: true }).trades.map((t) => t.entryIndex));
+    const later = all.find((t) => !firsts.has(t.entryIndex));
+    if (!later) return; // the fixture has no second-dot signal
+    const at = v1[later.entryIndex].time * 1000;
+    const market = new ReplayMarketData(new Map(Array.from({ length: 3 }, (_, k) => [`T${k}USDT`, v1] as const)));
+    market.current = at;
+    const store = new BotStore(":memory:");
+    const cfg = { ...loadConfig({ V1_FIRST_DOT_ONLY: "1" }), minLiquidity30d: 0, minBreadth: 3 };
+    const engine = new BotEngine(cfg, store, market, new PaperBroker(store, 10_000, 0.001, 0), { send: async () => {} }, () => at + BAR_MS);
+    const report = await engine.runCycle(at);
+    assert.ok(report.breadth >= 3, "the second-dot signals count toward breadth");
+  });
+  it("first dot only drops second dots of a drop and keeps the rest of the sequence valid", () => {
+    const all = runSetupV1(base, { stoch: "either", intervalMs: BAR_MS });
+    const firsts = runSetupV1(base, { stoch: "either", intervalMs: BAR_MS, firstDotOnly: true });
+    assert.ok(firsts.trades.length > 0 && firsts.trades.length <= all.trades.length);
   });
 });

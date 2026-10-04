@@ -8,6 +8,7 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "bot": "tsx bot/main.ts",
+    "bot:local": "BOT_ENV_FILE=bot/.env.local tsx bot/main.ts",
     "bot:replay": "tsx bot/replay.ts",
     "bot:test": "node --import tsx --test bot/test/*.test.ts",
     "research:setup-v1": "tsx research/setup-v1.ts",
