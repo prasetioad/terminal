@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DrawingInspector, DrawingToolbar } from "./chart/DrawingTools";
 import IndicatorPicker from "./chart/IndicatorPicker";
 import IndicatorSettings from "./chart/IndicatorSettings";
@@ -9,6 +9,7 @@ import Header from "./Header";
 import ControlPanel from "./ControlPanel";
 import PressurePanel from "./PressurePanel";
 import SetupScanner from "./SetupScanner";
+import MarketRegime from "./MarketRegime";
 import BotPanel from "./BotPanel";
 import TradeFeed from "./TradeFeed";
 import { useAlertSound } from "@/hooks/useAlertSound";
@@ -21,6 +22,7 @@ import { useFlowPressure } from "@/hooks/useFlowPressure";
 import { DrawingController } from "@/lib/drawings/controller";
 import { heatmapSources } from "@/lib/indicators/heatmap";
 import type { PressureRange } from "@/lib/pressure";
+import type { ScanSetup } from "@/lib/server/scanner";
 import type { StochPreset } from "@/lib/setups/setupV1";
 import type { TradeFilter } from "@/lib/tradeLog";
 import { INTERVALS, type IntervalKey } from "@/lib/types";
@@ -65,23 +67,27 @@ export default function OrderflowTerminal() {
   const bookSources = useMemo(() => heatmapSources(indicators.configs), [indicators.configs]);
   const heatmap = useHeatmapEngine({ pair, sources: bookSources });
 
-  // Setup v1 scanner over every pair (4h).
+  // Setup scanners over every pair (4h): v1 (capitulation) and A (breakout).
   const [scannerOpen, setScannerOpen] = useState(false);
   const [botOpen, setBotOpen] = useState(false);
   const [scanStoch, setScanStoch] = useState<StochPreset>("either");
-  const scanner = useSetupScanner(scanStoch);
+  const [scanSetup, setScanSetup] = useState<ScanSetup>("v1");
+  const scannerV1 = useSetupScanner("v1", scanStoch);
+  const scannerA = useSetupScanner("a", "either"); // Setup A has no stochastic
+  const scanner = scanSetup === "v1" ? scannerV1 : scannerA;
   const { acknowledge } = scanner;
   useEffect(() => {
     if (scannerOpen) acknowledge();
   }, [scannerOpen, acknowledge]);
   const openFromScanner = useCallback(
     (target: string) => {
+      const type = scanSetup === "v1" ? "setup-v1" : "setup-a";
       setSymbol(target);
       setIntervalKey("4h");
-      if (!indicators.configs.some((c) => c.type === "setup-v1")) indicators.add("setup-v1");
+      if (!indicators.configs.some((c) => c.type === type)) indicators.add(type);
       setScannerOpen(false);
     },
-    [indicators],
+    [indicators, scanSetup],
   );
 
   // Drawings belong to a symbol and are saved per symbol.
@@ -145,7 +151,8 @@ export default function OrderflowTerminal() {
                   onOpenIndicators={() => setPickerOpen(true)}
                   onOpenScanner={() => setScannerOpen(true)}
                   onOpenBot={() => setBotOpen(true)}
-                  newSetups={scanner.unseen.length}
+                  newSetups={scannerV1.unseen.length + scannerA.unseen.length}
+                  regime={<MarketRegime v1={scannerV1.result} a={scannerA.result} onOpen={() => setScannerOpen(true)} />}
                 />
               }
               onEditIndicator={setEditingUid}
@@ -171,6 +178,9 @@ export default function OrderflowTerminal() {
       {botOpen && <BotPanel onClose={() => setBotOpen(false)} />}
       {scannerOpen && (
         <SetupScanner
+          setup={scanSetup}
+          onSetupChange={setScanSetup}
+          unseen={{ v1: scannerV1.unseen.length, a: scannerA.unseen.length }}
           result={scanner.result}
           status={scanner.status}
           stoch={scanStoch}
@@ -195,19 +205,21 @@ export default function OrderflowTerminal() {
   );
 }
 
-/** Top-left of the chart: the indicator picker, the setup scanner and the bubble legend. */
+/** Top-left of the chart: the indicator picker, the setup scanner, the bubble legend and the market conditions. */
 function ChartToolbar({
   threshold,
   onOpenIndicators,
   onOpenScanner,
   onOpenBot,
   newSetups,
+  regime,
 }: {
   threshold: number;
   onOpenIndicators: () => void;
   onOpenScanner: () => void;
   onOpenBot: () => void;
   newSetups: number;
+  regime: ReactNode;
 }) {
   const button =
     "flex items-center gap-1.5 rounded border border-[#1E2631] bg-[#0D1117]/90 px-2.5 py-1 text-xs text-slate-200 backdrop-blur hover:border-[#00E5FF]/50 hover:text-[#00E5FF]";
@@ -216,7 +228,7 @@ function ChartToolbar({
       <button type="button" onClick={onOpenIndicators} className={button}>
         <span className="font-serif italic">ƒx</span> Indicators
       </button>
-      <button type="button" onClick={onOpenScanner} className={button} title="Setup v1 across every pair on 4h">
+      <button type="button" onClick={onOpenScanner} className={button} title="Setup v1 and Setup A across every pair on 4h">
         Scanner
         {newSetups > 0 && (
           <span className="rounded-full bg-[#00FFA3] px-1.5 font-mono text-[10px] font-bold text-[#0B0E11]" aria-label={`${newSetups} new entries`}>
@@ -224,10 +236,11 @@ function ChartToolbar({
           </span>
         )}
       </button>
-      <button type="button" onClick={onOpenBot} className={button} title="Setup v1 bot: mode, positions, results">
+      <button type="button" onClick={onOpenBot} className={button} title="Trading bot: mode, positions, results">
         Bot
       </button>
       <BubbleLegend threshold={threshold} />
+      {regime}
     </div>
   );
 }

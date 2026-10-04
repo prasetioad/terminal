@@ -5,7 +5,7 @@ import type { Candle } from "../types";
  * Setup v1 — "MaxFlow+ × Stochastic, long" (docs/ROADMAP.md §4.4), with the v1.1 filters.
  *
  *   entry: a MaxFlow+ green dot (on the bar it is known, at most DOT_WINDOW bars back),
- *          then a Stochastic %K/%D cross up from below 20 → buy the close of that bar.
+ *          then a Stochastic %K/%D cross up from below 20 (config.stochLevel) → buy the close of that bar.
  *   stop:  STOP_PCT below the entry (a disaster stop: tighter stops broke the edge).
  *   exit:  the first bearish WaveTrend cross above zero (the first red dot), at that close.
  *
@@ -19,6 +19,18 @@ export type StochPreset = "5,3,3" | "14,3,3" | "either";
 export interface SetupV1Config {
   stoch: StochPreset;
   intervalMs: number;
+  /** The cross up counts when %K or %D was below this level on the bar before (validated: 20). */
+  stochLevel?: number;
+  /** Green dots only while the higher-timeframe WaveTrend is ≥ 0 (validated: on). Research option. */
+  htfBias?: boolean;
+  /** "stoch": the green dot then a Stochastic cross (validated). "dot": the green dot alone, on the bar it is known. Research option. */
+  entry?: "stoch" | "dot";
+  /**
+   * Skip a signal when another green dot came in the 30 bars before the dot window: a
+   * second dot of the same drop. §4.12: first dots +2.1%/+3.7% per trade (IS/OOS), later
+   * dots −0.4%/+0.9%.
+   */
+  firstDotOnly?: boolean;
 }
 
 export interface SetupTrade {
@@ -56,6 +68,8 @@ export const SETUP_V1 = {
   stopPct: 0.15,
   cost: 0.001, // round trip: fees + slippage
   dotWindow: 5,
+  /** firstDotOnly: bars before the dot window searched for an earlier green dot. */
+  priorDotBars: 30,
   /** Bars before the first possible entry, so the indicators have settled. */
   warmup: 220,
   /**
@@ -122,8 +136,8 @@ export function stochastic(candles: readonly Candle[], kLength: number, kSmooth:
   return { k, d };
 }
 
-const crossUpFromBelow = (s: { k: number[]; d: number[] }, i: number) =>
-  s.k[i] > s.d[i] && s.k[i - 1] <= s.d[i - 1] && Math.min(s.k[i - 1], s.d[i - 1]) < 20;
+const crossUpFromBelow = (s: { k: number[]; d: number[] }, i: number, level: number) =>
+  s.k[i] > s.d[i] && s.k[i - 1] <= s.d[i - 1] && Math.min(s.k[i - 1], s.d[i - 1]) < level;
 
 export function runSetupV1(candles: readonly Candle[], config: SetupV1Config): SetupResult {
   const n = candles.length;
@@ -135,7 +149,7 @@ export function runSetupV1(candles: readonly Candle[], config: SetupV1Config): S
     obosFilter: true,
     divergence: false,
     hiddenDivergence: false,
-    mtf: true,
+    mtf: config.htfBias ?? true,
     htfMs: biasTimeframe(config.intervalMs),
     intervalMs: config.intervalMs,
     dynamicBands: false,
@@ -155,14 +169,23 @@ export function runSetupV1(candles: readonly Candle[], config: SetupV1Config): S
   }
   const fast = config.stoch !== "14,3,3" ? stochastic(candles, 5, 3, 3) : null;
   const slow = config.stoch !== "5,3,3" ? stochastic(candles, 14, 3, 3) : null;
-  const trigger = (i: number) => (fast !== null && crossUpFromBelow(fast, i)) || (slow !== null && crossUpFromBelow(slow, i));
+  const level = config.stochLevel ?? 20;
+  const trigger = (i: number) => (fast !== null && crossUpFromBelow(fast, i, level)) || (slow !== null && crossUpFromBelow(slow, i, level));
+  const earlierDot = (i: number) => {
+    for (let j = i - SETUP_V1.dotWindow - 1; j >= Math.max(0, i - SETUP_V1.priorDotBars); j--) if (green[j]) return true;
+    return false;
+  };
 
   let s = SETUP_V1.warmup;
   // An entry on the last bar is a position opened on that close (the scanner's "new entry").
   while (s < n) {
     let dot = false;
     for (let j = s; j >= s - SETUP_V1.dotWindow; j--) if (green[j]) dot = true;
-    if (!dot || !trigger(s)) {
+    if (config.entry === "dot" ? !green[s] : !dot || !trigger(s)) {
+      s++;
+      continue;
+    }
+    if (config.firstDotOnly && earlierDot(s)) {
       s++;
       continue;
     }
@@ -205,7 +228,8 @@ export function runSetupV1(candles: readonly Candle[], config: SetupV1Config): S
   }
 }
 
-export function scoreTrades(trades: readonly SetupTrade[]): SetupScore {
+/** Record of closed trades of any setup (net returns). */
+export function scoreTrades(trades: readonly { ret: number | null }[]): SetupScore {
   const rets = trades.map((t) => t.ret ?? 0);
   const totalRet = rets.reduce((a, b) => a + b, 0);
   return {

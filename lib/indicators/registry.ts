@@ -4,7 +4,9 @@ import { liquidityHeatmapIndicator } from "./heatmap";
 import { maxFlowIndicator } from "./maxflow";
 import { maxFlowOFIndicator } from "./maxflowOF";
 import { sessionsIndicator } from "./sessions";
+import { setupAIndicator } from "./setupA";
 import { setupV1Indicator } from "./setupV1";
+import { stochasticIndicator } from "./stochastic";
 import type { IndicatorDefinition } from "./types";
 import { volumeIndicator } from "./volume";
 import { volumeProfileIndicator } from "./volumeProfile";
@@ -21,7 +23,9 @@ export const INDICATORS: readonly IndicatorDefinition[] = [
   sessionsIndicator,
   maxFlowIndicator,
   maxFlowOFIndicator,
+  stochasticIndicator,
   setupV1Indicator,
+  setupAIndicator,
 ];
 
 const BY_TYPE = new Map(INDICATORS.map((d) => [d.type, d]));
