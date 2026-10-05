@@ -44,6 +44,11 @@ export interface BotConfig {
   minBreadth: number;
   /** Setup v1.1: minimum trailing 30-day average daily quote volume (USDT) of a pair. */
   minLiquidity30d: number;
+  /**
+   * Small accounts: when the risk-based size is below the exchange minimum, take the smallest
+   * valid size instead — only if its loss at the stop stays within this fraction of equity (0 = off).
+   */
+  minSizeMaxRisk: number;
   /** New entries stop for the rest of the UTC day once equity is down this much since the day's start. */
   dailyLossLimit: number;
   /** Paper mode: starting equity in USDT, fee and slippage per side. */
@@ -110,6 +115,7 @@ export function loadConfig(env: Env = process.env): BotConfig {
     minBreadth: num(env, "MIN_BREADTH", SETUP_V1.minBreadth, 1, 500),
     minLiquidity30d: num(env, "MIN_LIQUIDITY_30D", SETUP_V1.minLiquidity30d, 0, 1e12),
     dailyLossLimit: num(env, "DAILY_LOSS_LIMIT", 0.05, 0.005, 0.5),
+    minSizeMaxRisk: num(env, "MIN_SIZE_MAX_RISK", 0, 0, 0.03),
     paperStartEquity: num(env, "PAPER_START_EQUITY", 10_000, 10, 1e9),
     feeRate: num(env, "FEE_RATE", 0.001, 0, 0.01),
     slippage: num(env, "SLIPPAGE", 0.0005, 0, 0.02),

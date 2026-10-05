@@ -83,6 +83,19 @@ describe("risk", () => {
     assert.equal(sizePosition(a, { equity: 250, cash: 250, openPositions: 0, minNotional: 5, setup: "a", stopPct: 0.2 }).ok, false);
     assert.equal(sizePosition(a, { equity: 1e4, cash: 1e4, openPositions: 15, minNotional: 5, setup: "a", stopPct: 0.2 }).ok, false);
   });
+  it("small accounts: takes the smallest valid size only when its risk stays within the cap", () => {
+    const off = loadConfig({ SETUPS: "v1,a" });
+    assert.equal(sizePosition(off, { equity: 98, cash: 98, openPositions: 0, minNotional: 5, setup: "a", stopPct: 0.2 }).ok, false); // 2.45 USDT
+    const on = loadConfig({ SETUPS: "v1,a", MIN_SIZE_MAX_RISK: "0.015" });
+    const d = sizePosition(on, { equity: 98, cash: 98, openPositions: 0, minNotional: 5, setup: "a", stopPct: 0.2 });
+    assert.ok(d.ok && Math.abs(d.quote - 6.875) < 1e-9); // 5 × 1.1 ÷ 0.8; loses 1.375 (1.4%) at the stop
+    // a 25% stop: the minimum (7.33) would lose 1.83 = 1.9% > 1.5% → still skipped
+    assert.equal(sizePosition(on, { equity: 98, cash: 98, openPositions: 0, minNotional: 5, setup: "a", stopPct: 0.25 }).ok, false);
+    // a size already above the minimum is unchanged
+    const v1 = sizePosition(on, { equity: 300, cash: 300, openPositions: 0, minNotional: 5 });
+    assert.ok(v1.ok && Math.abs(v1.quote - 20) < 1e-9);
+    assert.throws(() => loadConfig({ MIN_SIZE_MAX_RISK: "0.1" }), /MIN_SIZE_MAX_RISK/);
+  });
   it("blocks entries past the daily loss limit, and when paused", () => {
     const store = new BotStore(":memory:");
     const gate = new RiskGate(cfg, store);

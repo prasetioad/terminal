@@ -37,8 +37,13 @@ export function sizePosition(cfg: BotConfig, s: SizeInput): SizeDecision {
   const byRisk = (s.equity * risk) / stopPct;
   const quote = Math.min(byRisk, s.equity * cfg.maxPositionFraction, s.cash * 0.98);
   // The stop, once hit, must still be a valid order (with a margin for fees and rounding).
-  if (quote * (1 - stopPct) < s.minNotional * 1.1) return { ok: false, reason: `size ${quote.toFixed(2)} USDT below the exchange minimum` };
-  return { ok: true, quote };
+  const minQuote = (s.minNotional * 1.1) / (1 - stopPct);
+  if (quote >= minQuote) return { ok: true, quote };
+  // Small accounts: the smallest valid size, if its loss at the stop stays within the cap.
+  if (cfg.minSizeMaxRisk > 0 && minQuote * stopPct <= s.equity * cfg.minSizeMaxRisk && minQuote <= s.cash * 0.98 && minQuote <= s.equity * cfg.maxPositionFraction) {
+    return { ok: true, quote: minQuote };
+  }
+  return { ok: false, reason: `size ${quote.toFixed(2)} USDT below the exchange minimum` };
 }
 
 const dayKey = (time: number) => `day_start_equity:${new Date(time).toISOString().slice(0, 10)}`;
