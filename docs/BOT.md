@@ -85,7 +85,9 @@ npm run research:setup-v1         # backtest tanpa survivorship bias (semua pair
 1. Buka https://testnet.binance.vision, login dengan GitHub, lalu **Generate HMAC_SHA256 Key**.
 2. Di `bot/.env`: `MODE=testnet`, `BINANCE_API_KEY=…`, `BINANCE_API_SECRET=…`.
 3. Cek jalur eksekusi dengan uang mainan: `npx tsx bot/testnet-check.ts BTCUSDT 15`. Script ini membeli, memasang stop −15% di exchange, membatalkannya, menjual kembali, lalu memastikan pembukuan bot cocok dengan saldo Binance.
-4. Testnet memakai saldo uji. **Pair dan harganya berbeda dari pasar sungguhan**, dan banyak altcoin tidak tersedia (bot akan melewatinya dengan alasan "not listed"). Tujuan testnet adalah menguji jalur eksekusi: order, stop, pembatalan, rekonsiliasi, dan restart. Testnet tidak cocok untuk menilai profit.
+4. **Skenario eksekusi lengkap:** `npm run bot:testnet-scenarios`. Sinyal sintetis, tapi order sungguhan di testnet lewat engine bot: entry Setup A dengan stop di exchange, restart di tengah posisi (tanpa beli ganda), exit trailing (stop dibatalkan lalu jual market), stop terisi di exchange (dicatat oleh reconcile), penjualan manual terdeteksi, `/pause` dan `/flatten`, serta koin milik akun yang memblokir entry. Hasil wajib: `ALL TESTNET SCENARIOS PASSED`. Lulus 2026-10-05.
+5. **Koin di luar bot:** di testnet/live, bot tidak entry di pair yang koinnya sudah ada di akun (nilai > $1). Dengan begitu koin pribadimu tidak tercampur dengan posisi bot, penjualan manual tetap terdeteksi, dan exit tidak pernah menjual koinmu.
+6. Testnet memakai saldo uji. **Pair dan harganya berbeda dari pasar sungguhan**, dan banyak altcoin tidak tersedia (bot akan melewatinya dengan alasan "not listed"). Tujuan testnet adalah menguji jalur eksekusi: order, stop, pembatalan, rekonsiliasi, dan restart. Testnet tidak cocok untuk menilai profit.
 
 ## 5. Live (uang sungguhan)
 

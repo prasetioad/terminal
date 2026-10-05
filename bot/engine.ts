@@ -70,6 +70,8 @@ export function setupsName(cfg: BotConfig): string {
 }
 
 const CONCURRENCY = 4;
+/** Coins worth more than this already in the account (outside the bot) block an entry on that pair. */
+const OUTSIDE_HOLDING_USDT = 1;
 
 /** Binance client order id: ≤ 36 chars of [A-Za-z0-9-_]. Setup v1 keeps its original prefix. */
 const clientId = (setup: SetupId, symbol: string, signalTime: number, step: "e" | "s" | "x" | "f") =>
@@ -270,6 +272,15 @@ export class BotEngine {
       if (!rules.ok) {
         report.skipped.push(`${tag}: ${rules.reason}`);
         continue;
+      }
+      // On an exchange account, coins held outside the bot would mix with its position: a sale by
+      // hand would go unnoticed and an exit could sell the owner's coins. Such pairs are skipped.
+      if (this.broker.kind !== "paper") {
+        const outside = (await this.broker.holding(symbol)) * ev.bars[ev.bars.length - 1].close;
+        if (outside > OUTSIDE_HOLDING_USDT) {
+          report.skipped.push(`${tag}: the account already holds ${outside.toFixed(2)} USDT of ${ev.pair.base} outside the bot`);
+          continue;
+        }
       }
       const openOfSetup = this.store.openPositions().filter((p) => p.setup === setup).length;
       const size = sizePosition(this.cfg, { equity, cash, openPositions: openOfSetup, minNotional: rules.minNotional, setup, stopPct });

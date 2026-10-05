@@ -265,6 +265,26 @@ describe("engine", () => {
     assert.ok(Math.abs(open[0].stopPrice / open[0].entryPrice - 0.85) < 1e-12);
   });
 
+  it("on an exchange account, skips a pair whose coins the owner already holds", async () => {
+    const store = new BotStore(":memory:");
+    const paper = new PaperBroker(store, 10_000, 0.001, 0);
+    const exchange: Broker = {
+      kind: "testnet",
+      cash: () => paper.cash(),
+      holding: async () => 3, // the owner's coins
+      rules: async () => ({ ok: true, minNotional: 5 }),
+      buy: (s, q, p, c) => paper.buy(s, q, p, c),
+      sell: (s, q, p, c) => paper.sell(s, q, p, c),
+      placeStop: async () => "1",
+      cancelStop: async () => {},
+      stopFill: async () => null,
+    };
+    const engine = new BotEngine(cfg, store, market, exchange, { send: async () => {} }, () => barTime + BAR_MS);
+    const report = await engine.runCycle(barTime);
+    assert.equal(store.openPositions().length, 0);
+    assert.match(report.skipped.join(" "), /outside the bot/);
+  });
+
   it("never keeps a position whose stop could not be placed", async () => {
     const store = new BotStore(":memory:");
     const paper = new PaperBroker(store, 10_000, 0.001, 0);

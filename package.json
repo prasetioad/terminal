@@ -12,7 +12,8 @@
     "bot:replay": "tsx bot/replay.ts",
     "bot:test": "node --import tsx --test bot/test/*.test.ts",
     "research:setup-v1": "tsx research/setup-v1.ts",
-    "bot:testnet-check": "tsx bot/testnet-check.ts"
+    "bot:testnet-check": "tsx bot/testnet-check.ts",
+    "bot:testnet-scenarios": "tsx bot/testnet-scenarios.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.10.0",
