@@ -1,4 +1,5 @@
 import { fetchKlinesBulk } from "../binance";
+import { EMPTY_RISK, fetchRiskList, type RiskList } from "./binanceRisk";
 import { SETUP_A, runSetupA } from "../setups/setupA";
 import { SETUP_V1, isFreshEntry, liquidity30d, runSetupV1, scoreTrades, type StochPreset } from "../setups/setupV1";
 import type { Candle } from "../types";
@@ -52,6 +53,8 @@ export interface ScanRow {
   liquidity30d: number;
   /** The setup's record on this pair over the scanned bars (validated trades only). */
   record: { count: number; winRate: number; avgRet: number };
+  /** Binance's warning on the pair (the bot takes no entry and sells on a delisting). */
+  warning: { kind: "delist"; at: number } | { kind: "monitoring" } | null;
 }
 
 export interface ScanResult {
@@ -86,6 +89,8 @@ interface BarData {
   btc: Candle[] | null;
   fearGreed: number | null;
   btcVs200d: number | null;
+  /** Public sources (no API key here): token delistings from the announcements, the Monitoring tag. */
+  risk: RiskList;
 }
 
 let klines: { barTime: number; value: Promise<BarData> } | null = null;
@@ -118,7 +123,7 @@ function barData(barTime: number): Promise<BarData> {
 }
 
 async function loadBarData(barTime: number): Promise<BarData> {
-  const [{ pairs }, fearGreed, btcVs200d] = await Promise.all([getPairs(), fetchFearGreed(), fetchBtcVs200d(barTime)]);
+  const [{ pairs }, fearGreed, btcVs200d, risk] = await Promise.all([getPairs(), fetchFearGreed(), fetchBtcVs200d(barTime), fetchRiskList().catch(() => EMPTY_RISK)]);
   const series: BarData["series"] = [];
   let failed = 0;
   let next = 0;
@@ -138,7 +143,7 @@ async function loadBarData(barTime: number): Promise<BarData> {
   };
   await Promise.all(Array.from({ length: CONCURRENCY }, worker));
   const btc = series.find((s) => s.pair.symbol === "BTCUSDT")?.candles ?? null;
-  return { barTime, pairs: pairs.length, failed, series, btc, fearGreed, btcVs200d };
+  return { barTime, pairs: pairs.length, failed, series, btc, fearGreed, btcVs200d, risk };
 }
 
 /** BTC's last closed daily close ÷ its 200-day simple average − 1. */
@@ -177,7 +182,12 @@ function scan(data: BarData, setup: ScanSetup, stoch: StochPreset): ScanResult {
     // Breadth counts every v1 signal (the market's capitulation); entries are first dots only (the bot's rules).
     if (setup === "v1" && isFreshEntry(runSetupV1(candles, { stoch, intervalMs: INTERVAL_MS }), candles.length)) signals++;
     const row = setup === "v1" ? rowV1(pair, candles, stoch, rs30d) : rowA(pair, candles, data.btc);
-    if (row) rows.push(row);
+    if (row) {
+      const at = data.risk.delist.get(pair.symbol);
+      row.warning = at !== undefined ? { kind: "delist", at } : data.risk.monitoring.has(pair.symbol) ? { kind: "monitoring" } : null;
+      if (row.warning) row.passes = false; // the bot would not take it
+      rows.push(row);
+    }
   }
   const order: Record<ScanStatus, number> = { entry: 0, exit: 1, open: 2 };
   rows.sort((a, b) => order[a.status] - order[b.status] || Number(b.passes) - Number(a.passes) || b.volume24h - a.volume24h);
@@ -233,6 +243,7 @@ function rowV1(pair: PairInfo, candles: Candle[], stoch: StochPreset, rs30d: num
     exitReason: hit.status === "exit" ? t.exitReason : null,
     passes: true,
     surge: null,
+    warning: null,
     record: { count: score.count, winRate: score.winRate, avgRet: score.avgRet },
   };
 }
@@ -257,6 +268,7 @@ function rowA(pair: PairInfo, candles: Candle[], btc: Candle[] | null): ScanRow 
     exitReason: hit.status === "exit" ? t.exitReason : null,
     passes: t.passes,
     surge: t.surge,
+    warning: null,
     record: { count: score.count, winRate: score.winRate, avgRet: score.avgRet },
   };
 }

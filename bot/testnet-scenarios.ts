@@ -11,6 +11,7 @@
  *   5  sold by hand outside the bot: reconcile marks the position "manual"
  *   6  /pause blocks a new entry; /flatten sells everything and stays paused
  *   7  coins already in the account (outside the bot) block an entry on that pair
+ *   8  a pair Binance will delist: no entry, and a held position is sold
  *
  *   npx tsx bot/testnet-scenarios.ts [SYMBOL]      (keys from bot/.env; refuses anything but the testnet)
  */
@@ -22,6 +23,7 @@ import type { Candle } from "../lib/types";
 import { BINANCE_SPOT, BinanceSpotBroker, BinanceSpotClient } from "./binance";
 import { loadConfig } from "./config";
 import { BotStore } from "./db";
+import { EMPTY_RISK, type RiskList } from "../lib/server/binanceRisk";
 import { BotEngine } from "./engine";
 import { BAR_MS, type MarketData, type PairInfo, lastClosedBar } from "./market";
 
@@ -117,6 +119,8 @@ async function main() {
     dbPath: dbFile,
   };
   const silent = { send: async () => {} };
+  // Binance's warning lists, set by scenario 8 (empty otherwise).
+  let risk: RiskList = EMPTY_RISK;
   const run = Date.now();
   // Each scenario its own signal bar (unique client order ids on every run).
   let bar = lastClosedBar(run) - 600 * BAR_MS;
@@ -129,7 +133,7 @@ async function main() {
 
   /* 1 · entry */
   let store = new BotStore(dbFile);
-  let engine = new BotEngine(cfg, store, market, broker, silent, () => Date.now());
+  let engine = new BotEngine(cfg, store, market, broker, silent, () => Date.now(), async () => risk);
   const rise = Array.from({ length: 10 }, (_, j) => 1 + 0.01 * (j + 1));
   const t1 = await nextSignal([...rise, 1.0]);
   const r1 = await engine.runCycle(t1);
@@ -141,7 +145,7 @@ async function main() {
   /* 2 · restart */
   store.close();
   store = new BotStore(dbFile);
-  engine = new BotEngine(cfg, store, market, broker, silent, () => Date.now());
+  engine = new BotEngine(cfg, store, market, broker, silent, () => Date.now(), async () => risk);
   const r2 = await engine.runCycle(t1);
   await engine.reconcile();
   ok("2 restart: no second entry for the same signal", r2.entries.length === 0 && store.openPositions().length === 1);
@@ -208,6 +212,20 @@ async function main() {
   const r7 = await engine.runCycle(t7);
   ok("7 coins held outside the bot: entry skipped", r7.entries.length === 0 && r7.skipped.some((x) => /outside the bot/.test(x)), r7.skipped.find((x) => /outside the bot/.test(x)) ?? r7.entries.join("; "));
   await broker.sell(symbol, Math.min(own.qty, await broker.holding(symbol)), px7, `scn-${run.toString(36)}-p`);
+
+  /* 8 · delisting: no entry, and a held position is sold */
+  risk = { ...EMPTY_RISK, delist: new Map([[symbol, Date.now() + 2 * 86_400_000]]), fetchedAt: Date.now() };
+  const r8 = await engine.runCycle(await nextSignal());
+  ok("8 delisting: entry skipped", r8.entries.length === 0 && r8.skipped.some((x) => /delists it/.test(x)), r8.skipped.find((x) => /delists it/.test(x)) ?? "");
+  risk = EMPTY_RISK;
+  await engine.runCycle(await nextSignal());
+  pos = open(store);
+  risk = { ...EMPTY_RISK, delist: new Map([[symbol, Date.now() + 2 * 86_400_000]]), fetchedAt: Date.now() };
+  const r8b = await engine.runCycle(t1); // any bar: the delisting check comes first
+  await sleep(1500);
+  const closed8 = pos ? store.closedPositions(20).find((p) => p.id === pos!.id) : undefined;
+  ok("8 delisting: held position sold, stop cancelled", closed8?.exitReason === "delist" && (await broker.holding(symbol)) - held0 < (pos?.qty ?? 1) * 0.05, r8b.warnings[0] ?? "no position");
+  risk = EMPTY_RISK;
 
   /* clean state */
   const orders = await client.request<unknown[]>("GET", "/api/v3/openOrders", { symbol }, true);

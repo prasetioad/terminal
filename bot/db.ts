@@ -9,8 +9,8 @@ import type { SetupId } from "./config";
  */
 
 export type PositionStatus = "open" | "closed";
-/** signal: v1 first red dot · trail: Setup A chandelier · stop: the resting stop. */
-export type ExitReason = "signal" | "trail" | "stop" | "manual" | "flatten";
+/** signal: v1 first red dot · trail: Setup A chandelier · stop: the resting stop · delist: Binance scheduled the pair's removal. */
+export type ExitReason = "signal" | "trail" | "stop" | "manual" | "flatten" | "delist";
 
 export interface Position {
   id: number;

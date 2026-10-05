@@ -471,7 +471,7 @@ Setiap tahap punya hasil yang bisa langsung dipakai dan syarat lulus.
 | **F4 · Uji aturan** | Skor confluence (−1/0/+1 per fitur yang lulus F3) → pengali exposure; peringatan exit diuji sebagai TP sebagian. Dipilih di IS, dilaporkan di OOS, per tahun. Koin tanpa futures = netral (1×) | Lokal | Lulus/gagal per aturan, dibandingkan dengan v1.2 + A saat ini |
 | **F5 · Implementasi (kalau lulus)** | Engine bersama → kolom/badge "Confluence" di scanner, panel OI/funding di chart, opsi pengali exposure di bot (default mati), peringatan Telegram (tanpa exit otomatis kecuali terbukti) | App + bot lokal | Paper lokal |
 | **F6 · Collector ke depan** | Rekam yang tidak punya riwayat gratis: likuidasi (stream `forceOrder`), snapshot orderbook, OI/funding live, pengumuman Binance, judul berita (RSS gratis) untuk diuji nanti | VPS (**perlu persetujuan**, ukuran disk dihitung dulu) | Data sendiri untuk uji 3–6 bulan lagi |
-| **Pengaman delisting** | Bot tidak entry di koin dengan pengumuman delist / tag Monitoring | Bot (bisa kapan saja) | Perlindungan |
+| **Pengaman delisting** ✅ 2026-10-05 | Bot tidak entry di pair yang akan di-delist / bertag Monitoring; posisi di pair yang diumumkan delisting dijual; scanner memberi label | Bot + scanner | Perlindungan |
 
 **Aturan main:**
 - Hipotesis dan arah efek ditetapkan sebelum melihat hasil. Ambang dipilih di IS saja.
@@ -562,3 +562,4 @@ Exchange (Binance, Bybit, OKX, Coinbase, KuCoin, Deribit)
 - **2026-10-05:** Dua bot di VPS: paper (testing) dan ops (testnet dulu, lalu live setelah key live dan konfirmasi pemilik). Panel Bot punya pilihan Paper / Ops.
 - **2026-10-05:** Skenario eksekusi testnet lulus semua (`npm run bot:testnet-scenarios`): entry A + stop di exchange, restart, exit trailing, stop terisi, penjualan manual, pause/flatten. Ditemukan dan diperbaiki: koin yang sudah ada di akun bisa tercampur dengan posisi bot, sehingga sekarang pair seperti itu dilewati di testnet/live.
 - **2026-10-05:** 🔴 **Bot Ops LIVE** di VPS atas keputusan pemilik: uji eksekusi dengan $98,60 USDT. Aturan sama dengan bot paper (v1.2 titik hijau pertama + Setup A RS < −10%, trailing lonjakan) plus `MIN_SIZE_MAX_RISK=0.015` untuk akun kecil. Key live: Spot only, withdrawal mati, IP VPS. Database testnet diarsipkan; backup harian mencakup database live. Siklus pertama: 463 pair, 0 error.
+- **2026-10-05:** Pengaman peringatan Binance: jadwal delisting resmi (bot live) atau pengumuman (paper/scanner), dan tag Monitoring. Tidak entry, posisi yang akan di-delist dijual, label di scanner. Skenario testnet 8/8 lulus. Saat dipasang: STGUSDT dijadwalkan delisting 2026-10-06; 32 pair USDT bertag Monitoring.

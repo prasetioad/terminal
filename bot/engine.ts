@@ -1,3 +1,4 @@
+import { EMPTY_RISK, fetchRiskList, type RiskList } from "../lib/server/binanceRisk";
 import { SETUP_A, runSetupA, type SetupAResult } from "../lib/setups/setupA";
 import { SETUP_V1, isFreshEntry, liquidity30d, runSetupV1, type SetupResult } from "../lib/setups/setupV1";
 import type { Candle } from "../lib/types";
@@ -33,6 +34,8 @@ export interface CycleReport {
   exits: string[];
   skipped: string[];
   errors: string[];
+  /** Binance warnings about held pairs (delisting, Monitoring tag): notified, not errors. */
+  warnings: string[];
 }
 
 interface Evaluation {
@@ -104,6 +107,8 @@ export class BotEngine {
     readonly broker: Broker,
     private readonly notifier: Notifier,
     private readonly now: () => number = Date.now,
+    /** Binance's delist schedule and Monitoring tags (the official schedule needs the live key). */
+    private readonly riskList: () => Promise<RiskList> = () => fetchRiskList(cfg.mode === "live" ? cfg.binanceApiKey : null),
   ) {
     this.risk = new RiskGate(cfg, store);
   }
@@ -117,8 +122,10 @@ export class BotEngine {
   /* ───────────────────────────── the 4h cycle ───────────────────────────── */
 
   async runCycle(barTime: number): Promise<CycleReport> {
-    const report: CycleReport = { barTime, evaluated: 0, breadth: 0, breakouts: 0, entries: [], exits: [], skipped: [], errors: [] };
+    const report: CycleReport = { barTime, evaluated: 0, breadth: 0, breakouts: 0, entries: [], exits: [], skipped: [], errors: [], warnings: [] };
     const held = this.store.openPositions();
+    const risks = await this.riskList().catch(() => EMPTY_RISK);
+    if (!risks.fetchedAt) this.store.log("warn", "risk", "Binance delist/Monitoring lists unavailable — those checks are off this cycle", this.now());
     const universe = await this.market.universe();
     const heldSymbols = new Set(held.map((p) => p.symbol));
     // Held pairs that left the universe (delisted, renamed) are still evaluated.
@@ -150,8 +157,8 @@ export class BotEngine {
     });
     report.evaluated = evals.size;
 
-    for (const position of held) await this.manage(position, evals.get(position.symbol), report);
-    await this.enter(evals, report);
+    for (const position of held) await this.manage(position, evals.get(position.symbol), report, risks);
+    await this.enter(evals, report, risks);
     await this.markEquity(barTime + BAR_MS, evals);
 
     this.store.set("last_bar", String(barTime));
@@ -163,13 +170,15 @@ export class BotEngine {
     );
     if (report.breadth) this.store.set("last_breadth", JSON.stringify({ barTime, breadth: report.breadth }));
     for (const e of report.errors) this.store.log("error", "cycle", e, this.now());
-    if (report.entries.length || report.exits.length || report.errors.length) {
+    for (const w of report.warnings) this.store.log("warn", "risk", w, this.now());
+    if (report.entries.length || report.exits.length || report.errors.length || report.warnings.length) {
       await this.notify(
         [
           `<b>${setupsName(this.cfg)} · ${this.broker.kind.toUpperCase()}</b> · 4h bar ${new Date(barTime + BAR_MS).toISOString().slice(0, 16).replace("T", " ")} UTC`,
           ...report.entries.map((e) => `🟢 ${e}`),
           ...report.exits.map((e) => `🔴 ${e}`),
           ...report.errors.map((e) => `⚠️ ${e}`),
+          ...report.warnings.map((e) => `🚩 ${e}`),
         ].join("\n"),
       );
     }
@@ -177,7 +186,19 @@ export class BotEngine {
   }
 
   /** Exit a held position when its setup has closed it. */
-  private async manage(position: Position, ev: Evaluation | undefined, report: CycleReport): Promise<void> {
+  private async manage(position: Position, ev: Evaluation | undefined, report: CycleReport, risks: RiskList): Promise<void> {
+    // Binance scheduled the pair's removal: never be caught holding it.
+    const delistAt = risks.delist.get(position.symbol);
+    if (delistAt !== undefined) {
+      const price = ev ? ev.bars[ev.bars.length - 1].close : await this.market.price(position.symbol).catch(() => position.entryPrice);
+      report.warnings.push(`${position.symbol}: Binance delists it on ${new Date(delistAt).toISOString().slice(0, 16).replace("T", " ")} UTC — position sold`);
+      await this.exit(position, price, "delist", report);
+      return;
+    }
+    if (risks.monitoring.has(position.symbol) && !this.store.get(`monitoring_alert:${position.id}`)) {
+      this.store.set(`monitoring_alert:${position.id}`, "1");
+      report.warnings.push(`${position.symbol}: Binance added the Monitoring tag — position kept with its stop and exit`);
+    }
     if (!ev) {
       report.errors.push(`${position.symbol}: no data this bar — position kept, stop still resting`);
       return;
@@ -241,7 +262,7 @@ export class BotEngine {
    * Fresh entries of every setup on this bar, most liquid first (as the research portfolio),
    * through the liquidity filter, the per-bar risk cap and the risk gates.
    */
-  private async enter(evals: Map<string, Evaluation>, report: CycleReport): Promise<void> {
+  private async enter(evals: Map<string, Evaluation>, report: CycleReport, risks: RiskList): Promise<void> {
     const fresh = this.candidates(evals, report).sort((a, b) => b.liquidity - a.liquidity);
     if (!fresh.length) return;
 
@@ -259,6 +280,15 @@ export class BotEngine {
       }
       if (this.store.hasSignal(symbol, signalTime)) continue; // already acted on
       if (this.store.openPositions().some((p) => p.symbol === symbol)) continue; // one position per pair across setups
+      const delistAt = risks.delist.get(symbol);
+      if (delistAt !== undefined) {
+        report.skipped.push(`${tag}: Binance delists it on ${new Date(delistAt).toISOString().slice(0, 10)}`);
+        continue;
+      }
+      if (risks.monitoring.has(symbol)) {
+        report.skipped.push(`${tag}: Binance Monitoring tag`);
+        continue;
+      }
       if (liquidity < this.cfg.minLiquidity30d) {
         report.skipped.push(`${tag}: 30d liquidity ${(liquidity / 1e6).toFixed(2)}M < ${(this.cfg.minLiquidity30d / 1e6).toFixed(2)}M/day`);
         continue;
@@ -359,7 +389,7 @@ export class BotEngine {
   /** Sell everything now (kill switch). New entries stay paused afterwards. */
   async flatten(reason: string): Promise<string[]> {
     this.risk.setPaused(true, `flatten: ${reason}`);
-    const report: CycleReport = { barTime: 0, evaluated: 0, breadth: 0, breakouts: 0, entries: [], exits: [], skipped: [], errors: [] };
+    const report: CycleReport = { barTime: 0, evaluated: 0, breadth: 0, breakouts: 0, entries: [], exits: [], skipped: [], errors: [], warnings: [] };
     for (const p of this.store.openPositions()) {
       const price = await this.market.price(p.symbol).catch(() => p.entryPrice);
       await this.exit(p, price, "flatten", report);

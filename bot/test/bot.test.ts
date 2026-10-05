@@ -12,6 +12,9 @@ import { PaperBroker, type Broker, type Fill } from "../broker";
 import { LIVE_CONFIRM_PHRASE, loadConfig } from "../config";
 import { BotStore } from "../db";
 import { BotEngine } from "../engine";
+import { EMPTY_RISK, parseDelistTitles, type RiskList } from "../../lib/server/binanceRisk";
+
+const noRisk = async () => EMPTY_RISK;
 import { BAR_MS } from "../market";
 import { ReplayMarketData } from "../replay";
 import { RiskGate, sizePosition } from "../risk";
@@ -256,7 +259,7 @@ describe("engine", () => {
 
   it("takes a fresh entry once, with its −15% stop", async () => {
     const store = new BotStore(":memory:");
-    const engine = new BotEngine(cfg, store, market, new PaperBroker(store, 10_000, 0.001, 0), { send: async () => {} }, () => barTime + BAR_MS);
+    const engine = new BotEngine(cfg, store, market, new PaperBroker(store, 10_000, 0.001, 0), { send: async () => {} }, () => barTime + BAR_MS, noRisk);
     await engine.runCycle(barTime);
     await engine.runCycle(barTime); // a re-run (crash recovery) must not enter again
     const open = store.openPositions();
@@ -279,7 +282,7 @@ describe("engine", () => {
       cancelStop: async () => {},
       stopFill: async () => null,
     };
-    const engine = new BotEngine(cfg, store, market, exchange, { send: async () => {} }, () => barTime + BAR_MS);
+    const engine = new BotEngine(cfg, store, market, exchange, { send: async () => {} }, () => barTime + BAR_MS, noRisk);
     const report = await engine.runCycle(barTime);
     assert.equal(store.openPositions().length, 0);
     assert.match(report.skipped.join(" "), /outside the bot/);
@@ -302,7 +305,7 @@ describe("engine", () => {
       cancelStop: async () => {},
       stopFill: async () => null,
     };
-    const engine = new BotEngine(cfg, store, market, broken, { send: async () => {} }, () => barTime + BAR_MS);
+    const engine = new BotEngine(cfg, store, market, broken, { send: async () => {} }, () => barTime + BAR_MS, noRisk);
     const report = await engine.runCycle(barTime);
     assert.equal(store.openPositions().length, 0);
     assert.equal(sells.length, 1, "the entry was sold back");
@@ -323,7 +326,7 @@ describe("engine with several setups", () => {
     const market = new ReplayMarketData(new Map([["TESTUSDT", bars]]));
     const store = new BotStore(":memory:");
     let clock = 0;
-    const engine = new BotEngine(cfgA, store, market, new PaperBroker(store, 10_000, 0.001, 0), { send: async () => {} }, () => clock);
+    const engine = new BotEngine(cfgA, store, market, new PaperBroker(store, 10_000, 0.001, 0), { send: async () => {} }, () => clock, noRisk);
     const at = (i: number) => bars[i].time * 1000;
     market.current = at(breakout.entryIndex);
     clock = at(breakout.entryIndex) + BAR_MS;
@@ -351,7 +354,7 @@ describe("engine with several setups", () => {
     market.current = barTime;
     const store = new BotStore(":memory:");
     const cfg = { ...loadConfig({ MAX_RISK_PER_BAR: "0.05" }), minLiquidity30d: 0, minBreadth: 1 };
-    const engine = new BotEngine(cfg, store, market, new PaperBroker(store, 10_000, 0.001, 0), { send: async () => {} }, () => barTime + BAR_MS);
+    const engine = new BotEngine(cfg, store, market, new PaperBroker(store, 10_000, 0.001, 0), { send: async () => {} }, () => barTime + BAR_MS, noRisk);
     const report = await engine.runCycle(barTime);
     assert.equal(report.breadth, 8);
     assert.equal(store.openPositions().length, 5); // 5 × 1% = the 5% cap
@@ -364,7 +367,7 @@ describe("engine with several setups", () => {
     const market = new ReplayMarketData(new Map([["TESTUSDT", bars]]));
     const t = bars[breakout.entryIndex].time * 1000;
     market.current = t;
-    const engine = new BotEngine(cfgA, store, market, new PaperBroker(store, 10_000, 0.001, 0), { send: async () => {} }, () => t + BAR_MS);
+    const engine = new BotEngine(cfgA, store, market, new PaperBroker(store, 10_000, 0.001, 0), { send: async () => {} }, () => t + BAR_MS, noRisk);
     await engine.runCycle(t);
     assert.equal(store.openPositions().length, 1);
     assert.equal(store.openPositions()[0].setup, "v1");
@@ -397,7 +400,7 @@ describe("entry improvements", () => {
       market.current = at;
       const store = new BotStore(":memory:");
       const cfg = { ...loadConfig({ SETUPS: "a", A_MAX_RS: "-0.1" }), minLiquidity30d: 0 };
-      const engine = new BotEngine(cfg, store, market, new PaperBroker(store, 10_000, 0.001, 0), { send: async () => {} }, () => at + BAR_MS);
+      const engine = new BotEngine(cfg, store, market, new PaperBroker(store, 10_000, 0.001, 0), { send: async () => {} }, () => at + BAR_MS, noRisk);
       await engine.runCycle(at);
       assert.equal(store.openPositions().filter((p) => p.symbol === "TESTUSDT").length, expected);
     }
@@ -415,7 +418,7 @@ describe("entry improvements", () => {
     market.current = at;
     const store = new BotStore(":memory:");
     const cfg = { ...loadConfig({ V1_FIRST_DOT_ONLY: "1" }), minLiquidity30d: 0, minBreadth: 3 };
-    const engine = new BotEngine(cfg, store, market, new PaperBroker(store, 10_000, 0.001, 0), { send: async () => {} }, () => at + BAR_MS);
+    const engine = new BotEngine(cfg, store, market, new PaperBroker(store, 10_000, 0.001, 0), { send: async () => {} }, () => at + BAR_MS, noRisk);
     const report = await engine.runCycle(at);
     assert.ok(report.breadth >= 3, "the second-dot signals count toward breadth");
   });
@@ -434,5 +437,65 @@ describe("entry improvements", () => {
     const all = runSetupV1(base, { stoch: "either", intervalMs: BAR_MS });
     const firsts = runSetupV1(base, { stoch: "either", intervalMs: BAR_MS, firstDotOnly: true });
     assert.ok(firsts.trades.length > 0 && firsts.trades.length <= all.trades.length);
+  });
+});
+
+describe("Binance warnings (delisting, Monitoring)", () => {
+  const bars = syntheticSeries(1500, 7);
+  const fresh = runSetupV1(bars, { stoch: "either", intervalMs: BAR_MS }).trades[0];
+  const barTime = bars[fresh.entryIndex].time * 1000;
+  const market = new ReplayMarketData(new Map([["TESTUSDT", bars]]));
+  market.current = barTime;
+  const cfg = { ...loadConfig({}), minLiquidity30d: 0, minBreadth: 1 };
+  const lists = (delist: string[], monitoring: string[]): (() => Promise<RiskList>) => async () => ({
+    delist: new Map(delist.map((s) => [s, Date.UTC(2030, 0, 1, 3)])), monitoring: new Set(monitoring), fetchedAt: 1, source: { delist: "schedule", monitoring: true },
+  });
+
+  for (const [name, risk, why] of [
+    ["delisting", lists(["TESTUSDT"], []), /delists it/],
+    ["Monitoring tag", lists([], ["TESTUSDT"]), /Monitoring/],
+  ] as const) {
+    it(`takes no entry on a pair with a ${name}`, async () => {
+      const store = new BotStore(":memory:");
+      const engine = new BotEngine(cfg, store, market, new PaperBroker(store, 10_000, 0.001, 0), { send: async () => {} }, () => barTime + BAR_MS, risk);
+      const report = await engine.runCycle(barTime);
+      assert.equal(store.openPositions().length, 0);
+      assert.match(report.skipped.join(" "), why);
+    });
+  }
+
+  it("sells a held position once its delisting is announced; only warns once on a Monitoring tag", async () => {
+    const store = new BotStore(":memory:");
+    let risk = lists([], []);
+    const sent: string[] = [];
+    const engine = new BotEngine(cfg, store, market, new PaperBroker(store, 10_000, 0.001, 0), { send: async (t) => void sent.push(t) }, () => barTime + BAR_MS, () => risk());
+    await engine.runCycle(barTime);
+    assert.equal(store.openPositions().length, 1);
+    risk = lists([], ["TESTUSDT"]);
+    const r1 = await engine.runCycle(barTime);
+    const r2 = await engine.runCycle(barTime);
+    assert.equal(r1.warnings.length, 1);
+    assert.equal(r2.warnings.length, 0, "the Monitoring warning is sent once");
+    assert.equal(store.openPositions().length, 1, "a Monitoring tag alone does not sell");
+    risk = lists(["TESTUSDT"], ["TESTUSDT"]);
+    const r3 = await engine.runCycle(barTime);
+    assert.equal(store.openPositions().length, 0);
+    assert.equal(store.closedPositions()[0].exitReason, "delist");
+    assert.match(r3.warnings.join(" "), /delists it/);
+    assert.ok(sent.some((t) => t.includes("🚩")), "warnings reach Telegram");
+  });
+
+  it("reads token delistings from Binance's announcement titles", () => {
+    const now = Date.UTC(2026, 7, 21);
+    const m = parseDelistTitles(
+      [
+        { title: "Binance Will Delist ICX, SCRT, STORJ on 2026-09-03", releaseDate: Date.UTC(2026, 7, 20) },
+        { title: "Binance Will Delist COS, D, HIGH, MBOX on 2026-06-19", releaseDate: Date.UTC(2026, 5, 5) }, // past
+        { title: "Binance Futures Will Delist Multiple Perpetual Contracts", releaseDate: Date.UTC(2026, 7, 20) },
+      ],
+      now,
+    );
+    assert.deepEqual([...m.keys()].sort(), ["ICXUSDT", "SCRTUSDT", "STORJUSDT"]);
+    assert.equal(m.get("ICXUSDT"), Date.UTC(2026, 8, 3, 3));
   });
 });

@@ -270,6 +270,14 @@ function Row({ row: r, isA, onOpen }: { row: ScanRow; isA: boolean; onOpen: (sym
       <td className="px-3 py-1.5 text-slate-100">
         <span className="font-semibold">{r.base}</span>
         <span className="ml-1.5 text-[10px] text-slate-500">{r.rank === null ? "—" : `#${r.rank}`}</span>
+        {r.warning && (
+          <span
+            className={`ml-1.5 rounded px-1 py-px text-[9px] font-bold ${r.warning.kind === "delist" ? "bg-[#FF2D55]/20 text-[#FF2D55]" : "bg-amber-400/15 text-amber-300"}`}
+            title={r.warning.kind === "delist" ? "Binance will delist this pair: the bot takes no entry and sells a held position" : "Binance Monitoring tag (higher delisting risk): the bot takes no entry"}
+          >
+            {r.warning.kind === "delist" ? `DELIST ${new Date(r.warning.at).toISOString().slice(5, 10)}` : "MONITORING"}
+          </span>
+        )}
       </td>
       <td className="px-2 py-1.5">
         <span className={`rounded px-1.5 py-px text-[10px] font-semibold ${style.cls}`}>

@@ -5,6 +5,7 @@
  *
  *   npx tsx bot/replay.ts [--days 365] [--pairs BTCUSDT,ETHUSDT,...]
  */
+import { EMPTY_RISK } from "../lib/server/binanceRisk";
 import { SETUP_A, runSetupA } from "../lib/setups/setupA";
 import { liquidity30d, runSetupV1 } from "../lib/setups/setupV1";
 import type { Candle } from "../lib/types";
@@ -56,7 +57,8 @@ export async function replay(series: Map<string, Candle[]>, from: number, to: nu
   const store = new BotStore(":memory:");
   const market = new ReplayMarketData(series);
   let clock = from;
-  const engine = new BotEngine(cfg, store, market, new PaperBroker(store, cfg.paperStartEquity, cfg.feeRate, cfg.slippage), silent, () => clock);
+  // History: today's Binance warnings do not apply to the past.
+  const engine = new BotEngine(cfg, store, market, new PaperBroker(store, cfg.paperStartEquity, cfg.feeRate, cfg.slippage), silent, () => clock, async () => EMPTY_RISK);
   for (let bar = from; bar <= to; bar += BAR_MS) {
     market.current = bar;
     clock = bar + BAR_MS + 90_000;
