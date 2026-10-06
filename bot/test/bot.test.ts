@@ -8,7 +8,7 @@ import { runSetupA } from "../../lib/setups/setupA";
 import { runSetupV1 } from "../../lib/setups/setupV1";
 import type { Candle } from "../../lib/types";
 import { BinanceApiError, BinanceSpotBroker, BinanceSpotClient, floorToStep, sign } from "../binance";
-import { PaperBroker, type Broker, type Fill } from "../broker";
+import { PaperBroker, type Broker, type Fill, type StopStatus } from "../broker";
 import { LIVE_CONFIRM_PHRASE, loadConfig } from "../config";
 import { BotStore } from "../db";
 import { BotEngine } from "../engine";
@@ -280,7 +280,7 @@ describe("engine", () => {
       sell: (s, q, p, c) => paper.sell(s, q, p, c),
       placeStop: async () => "1",
       cancelStop: async () => {},
-      stopFill: async () => null,
+      stopStatus: async () => ({ state: "resting" }),
     };
     const engine = new BotEngine(cfg, store, market, exchange, { send: async () => {} }, () => barTime + BAR_MS, noRisk);
     const report = await engine.runCycle(barTime);
@@ -303,7 +303,7 @@ describe("engine", () => {
         throw new Error("stop rejected");
       },
       cancelStop: async () => {},
-      stopFill: async () => null,
+      stopStatus: async () => ({ state: "resting" }),
     };
     const engine = new BotEngine(cfg, store, market, broken, { send: async () => {} }, () => barTime + BAR_MS, noRisk);
     const report = await engine.runCycle(barTime);
@@ -497,5 +497,87 @@ describe("Binance warnings (delisting, Monitoring)", () => {
     );
     assert.deepEqual([...m.keys()].sort(), ["ICXUSDT", "SCRTUSDT", "STORJUSDT"]);
     assert.equal(m.get("ICXUSDT"), Date.UTC(2026, 8, 3, 3));
+  });
+});
+
+describe("a stop that ends without filling (cancelled, expired, unknown)", () => {
+  const fill = (qty: number, price: number): Fill => ({ qty, price, fee: 0, quote: qty * price, orderId: "x" });
+  function setup(o: { status: StopStatus; holding: number; price: number; placeFails?: boolean }) {
+    const store = new BotStore(":memory:");
+    const pos = store.insertPosition({ setup: "a", symbol: "TESTUSDT", signalTime: 1, qty: 10, entryPrice: 100, entryFee: 0, cost: 1000, stopPrice: 80, stopOrderId: "1", openedAt: 1 });
+    const sold: number[] = [];
+    const placed: number[] = [];
+    const sent: string[] = [];
+    const broker: Broker = {
+      kind: "live",
+      cash: async () => 0,
+      holding: async () => o.holding,
+      rules: async () => ({ ok: true, minNotional: 5 }),
+      buy: async () => fill(0, 0),
+      sell: async (_s, q, p) => (sold.push(q), fill(q, p)),
+      placeStop: async (_s, q) => {
+        if (o.placeFails) throw new Error("Stop price would trigger immediately");
+        placed.push(q);
+        return "2";
+      },
+      cancelStop: async () => {},
+      stopStatus: async () => o.status,
+    };
+    const market = { universe: async () => [], closedBars: async () => null, price: async () => o.price };
+    const engine = new BotEngine(loadConfig({ SETUPS: "a" }), store, market, broker, { send: async (t) => void sent.push(t) }, () => 2, noRisk);
+    return { store, pos, sold, placed, sent, engine };
+  }
+
+  it("cancelled outside the bot, price above the stop: the stop is placed again", async () => {
+    const t = setup({ status: { state: "gone", status: "CANCELED", fill: null }, holding: 10, price: 95 });
+    await t.engine.reconcile();
+    assert.deepEqual(t.placed, [10]);
+    assert.equal(t.store.openPositions()[0]?.stopOrderId, "2");
+    assert.match(t.sent.join(" "), /canceled outside the bot — placed again/);
+  });
+
+  it("cancelled, and the price is already under the stop: sold at market", async () => {
+    const t = setup({ status: { state: "gone", status: "CANCELED", fill: null }, holding: 10, price: 75 });
+    await t.engine.reconcile();
+    assert.deepEqual(t.sold, [10]);
+    assert.equal(t.store.closedPositions()[0].exitReason, "stop");
+  });
+
+  it("expired after a partial fill: the rest is sold and both legs are booked", async () => {
+    const t = setup({ status: { state: "gone", status: "EXPIRED", fill: fill(6, 79) }, holding: 4, price: 78 });
+    await t.engine.reconcile();
+    assert.deepEqual(t.sold, [4]);
+    const done = t.store.closedPositions()[0];
+    assert.equal(done.exitReason, "stop");
+    assert.ok(Math.abs(done.proceeds! - (6 * 79 + 4 * 78)) < 1e-9);
+  });
+
+  it("the stop cannot rest again: sold rather than left unprotected", async () => {
+    const t = setup({ status: { state: "gone", status: "CANCELED", fill: null }, holding: 10, price: 95, placeFails: true });
+    await t.engine.reconcile();
+    assert.deepEqual(t.sold, [10]);
+    assert.equal(t.store.openPositions().length, 0);
+  });
+
+  it("unknown order and no coins left: booked as a sale by hand", async () => {
+    const t = setup({ status: { state: "gone", status: "UNKNOWN", fill: null }, holding: 0, price: 95 });
+    await t.engine.reconcile();
+    assert.equal(t.store.closedPositions()[0].exitReason, "manual");
+  });
+
+  it("the Binance broker reads cancelled, filled and unknown stops", async () => {
+    for (const [reply, expected] of [
+      [{ status: 200, body: { orderId: 7, status: "CANCELED", executedQty: "0", cummulativeQuoteQty: "0" } }, "gone"],
+      [{ status: 200, body: { orderId: 7, status: "NEW", executedQty: "0", cummulativeQuoteQty: "0" } }, "resting"],
+      [{ status: 400, body: { code: -2013, msg: "Order does not exist." } }, "gone"],
+    ] as const) {
+      const fetchImpl = mockFetch((url) => {
+        if (url.pathname === "/api/v3/time") return { status: 200, body: { serverTime: Date.now() } };
+        if (url.pathname === "/api/v3/order") return reply;
+        return { status: 404, body: {} };
+      }, []);
+      const broker = new BinanceSpotBroker("live", new BinanceSpotClient("https://t", "k", "s", fetchImpl));
+      assert.equal((await broker.stopStatus("SOLUSDT", "7")).state, expected);
+    }
   });
 });

@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import type { Broker, Fill, TradeRules } from "./broker";
+import type { Broker, Fill, StopStatus, TradeRules } from "./broker";
 
 /**
  * Binance Spot: a signed REST client and the broker built on it.
@@ -258,9 +258,23 @@ export class BinanceSpotBroker implements Broker {
     }
   }
 
-  async stopFill(symbol: string, orderId: string): Promise<Fill | null> {
-    const o = await this.client.request<OrderResponse>("GET", "/api/v3/order", { symbol, orderId }, true);
-    if (o.status !== "FILLED") return null;
+  async stopStatus(symbol: string, orderId: string): Promise<StopStatus> {
+    let o: OrderResponse;
+    try {
+      o = await this.client.request<OrderResponse>("GET", "/api/v3/order", { symbol, orderId }, true);
+    } catch (err) {
+      if (err instanceof BinanceApiError && err.code === -2013) return { state: "gone", status: "UNKNOWN", fill: null }; // no such order
+      throw err;
+    }
+    // NEW: waiting for its trigger; PARTIALLY_FILLED: a triggered stop still executing.
+    if (o.status === "NEW" || o.status === "PENDING_NEW" || o.status === "PARTIALLY_FILLED") return { state: "resting" };
+    const fill = Number(o.executedQty) > 0 ? await this.fillOf(symbol, o, orderId) : null;
+    if (o.status === "FILLED" && fill) return { state: "filled", fill };
+    return { state: "gone", status: o.status, fill };
+  }
+
+  /** What an order sold: quantity, average price, fees in USDT, USDT received. */
+  private async fillOf(symbol: string, o: OrderResponse, orderId: string): Promise<Fill> {
     const trades = await this.client.request<{ price: string; qty: string; commission: string; commissionAsset: string }[]>("GET", "/api/v3/myTrades", { symbol, orderId }, true);
     const sold = Number(o.executedQty);
     const received = Number(o.cummulativeQuoteQty);
@@ -268,4 +282,5 @@ export class BinanceSpotBroker implements Broker {
     const fee = await this.fees(symbol, { ...o, fills: trades }, price);
     return { qty: sold, price, fee: fee.usdt, quote: received - fee.usdt, orderId };
   }
+
 }

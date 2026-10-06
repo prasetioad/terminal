@@ -2,7 +2,7 @@ import { EMPTY_RISK, fetchRiskList, type RiskList } from "../lib/server/binanceR
 import { SETUP_A, runSetupA, type SetupAResult } from "../lib/setups/setupA";
 import { SETUP_V1, isFreshEntry, liquidity30d, runSetupV1, type SetupResult } from "../lib/setups/setupV1";
 import type { Candle } from "../lib/types";
-import type { Broker } from "./broker";
+import type { Broker, Fill, StopStatus } from "./broker";
 import type { BotConfig, SetupId } from "./config";
 import type { BotStore, ExitReason, Position } from "./db";
 import { BAR_MS, type MarketData, type PairInfo } from "./market";
@@ -77,7 +77,7 @@ const CONCURRENCY = 4;
 const OUTSIDE_HOLDING_USDT = 1;
 
 /** Binance client order id: ≤ 36 chars of [A-Za-z0-9-_]. Setup v1 keeps its original prefix. */
-const clientId = (setup: SetupId, symbol: string, signalTime: number, step: "e" | "s" | "x" | "f") =>
+const clientId = (setup: SetupId, symbol: string, signalTime: number, step: string) =>
   `${setup === "v1" ? "sv1" : "sva"}-${symbol}-${(signalTime / 1000).toString(36)}-${step}`;
 
 const fmt = (v: number) => (v >= 1 ? v.toFixed(4) : v.toPrecision(4));
@@ -366,12 +366,13 @@ export class BotEngine {
     for (const p of this.store.openPositions()) {
       try {
         if (p.stopOrderId) {
-          const fill = await this.broker.stopFill(p.symbol, p.stopOrderId);
-          if (fill) {
-            const done = this.store.closePosition(p.id, { price: fill.price, fee: fill.fee, proceeds: fill.quote, reason: "stop", time: this.now() });
-            await this.notify(`🛑 ${p.symbol} stopped @ ${fmt(fill.price)} · ${pct(done.pnl! / done.cost)} (${done.pnl!.toFixed(2)} USDT)`);
+          const stop = await this.broker.stopStatus(p.symbol, p.stopOrderId);
+          if (stop.state === "filled") {
+            const done = this.store.closePosition(p.id, { price: stop.fill.price, fee: stop.fill.fee, proceeds: stop.fill.quote, reason: "stop", time: this.now() });
+            await this.notify(`🛑 ${p.symbol} stopped @ ${fmt(stop.fill.price)} · ${pct(done.pnl! / done.cost)} (${done.pnl!.toFixed(2)} USDT)`);
             continue;
           }
+          if (stop.state === "gone" && (await this.stopGone(p, stop))) continue;
         }
         const holding = await this.broker.holding(p.symbol);
         if (holding < p.qty * 0.05) {
@@ -384,6 +385,58 @@ export class BotEngine {
         this.store.log("error", "reconcile", `${p.symbol}: ${(err as Error).message}`, this.now());
       }
     }
+  }
+
+  /**
+   * The stop order ended without (fully) filling: cancelled by hand or by the exchange
+   * (maintenance, a delisting), expired, rejected or unknown. The position must never stay
+   * unprotected: a partly filled stop is completed by selling the rest; an unfilled one is
+   * placed again, or the position sold if the price is already through the stop. Returns
+   * whether the position was handled (false: nothing held — the manual-sale check follows).
+   */
+  private async stopGone(p: Position, stop: Extract<StopStatus, { state: "gone" }>): Promise<boolean> {
+    const held = Math.min(p.qty, await this.broker.holding(p.symbol));
+    const price = await this.market.price(p.symbol).catch(() => p.stopPrice);
+    const id = (step: string) => clientId(p.setup, p.symbol, p.signalTime, step);
+    const replaced = Number(this.store.get(`stop_replaced:${p.id}`) ?? 0) + 1;
+    const sellRest = async (qty: number): Promise<Fill | null> => {
+      if (qty * price < 1) return null; // dust: below any exchange minimum
+      return this.broker.sell(p.symbol, qty, price, id(`r${replaced}`));
+    };
+    const close = (fills: Fill[], note: string) => {
+      const qty = fills.reduce((s, f) => s + f.qty, 0);
+      const quote = fills.reduce((s, f) => s + f.quote, 0);
+      const done = this.store.closePosition(p.id, { price: qty > 0 ? fills.reduce((s, f) => s + f.price * f.qty, 0) / qty : price, fee: fills.reduce((s, f) => s + f.fee, 0), proceeds: quote, reason: "stop", time: this.now() });
+      this.store.log("warn", "reconcile", `${p.symbol}: ${note}`, this.now());
+      return this.notify(`🛑 ${p.symbol} ${note} · ${pct(done.pnl! / done.cost)} (${done.pnl!.toFixed(2)} USDT)`);
+    };
+
+    if (stop.fill) {
+      // Triggered and partly sold: the stop was hit — sell what is left.
+      this.store.set(`stop_replaced:${p.id}`, String(replaced));
+      const rest = await sellRest(Math.min(held, p.qty - stop.fill.qty));
+      await close(rest ? [stop.fill, rest] : [stop.fill], `stop ${stop.status.toLowerCase()} after a partial fill — rest sold at market`);
+      return true;
+    }
+    if (held < p.qty * 0.05) return false; // the coins are gone: a sale by hand
+
+    this.store.set(`stop_replaced:${p.id}`, String(replaced));
+    if (price <= p.stopPrice) {
+      const fill = await sellRest(held);
+      await close(fill ? [fill] : [], `stop was ${stop.status.toLowerCase()} and the price is already under it — sold at market`);
+      return true;
+    }
+    try {
+      const orderId = await this.broker.placeStop(p.symbol, held, p.stopPrice, id(`s${replaced}`));
+      this.store.setStopOrder(p.id, orderId);
+      this.store.log("warn", "reconcile", `${p.symbol}: stop ${stop.status.toLowerCase()} outside the bot — placed again (${orderId})`, this.now());
+      await this.notify(`🚩 ${p.symbol}: its stop on Binance was ${stop.status.toLowerCase()} outside the bot — placed again @ ${fmt(p.stopPrice)}`);
+    } catch (err) {
+      // The stop cannot rest (e.g. it would trigger at once): never hold without one.
+      const fill = await sellRest(held);
+      await close(fill ? [fill] : [], `stop was ${stop.status.toLowerCase()} and could not be placed again (${(err as Error).message}) — sold at market`);
+    }
+    return true;
   }
 
   /** Sell everything now (kill switch). New entries stay paused afterwards. */

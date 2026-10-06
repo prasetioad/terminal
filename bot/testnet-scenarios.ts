@@ -12,6 +12,7 @@
  *   6  /pause blocks a new entry; /flatten sells everything and stays paused
  *   7  coins already in the account (outside the bot) block an entry on that pair
  *   8  a pair Binance will delist: no entry, and a held position is sold
+ *   9  the stop cancelled outside the bot (by hand, or by the exchange): placed again
  *
  *   npx tsx bot/testnet-scenarios.ts [SYMBOL]      (keys from bot/.env; refuses anything but the testnet)
  */
@@ -165,16 +166,16 @@ async function main() {
   if (pos?.stopOrderId) {
     await broker.cancelStop(symbol, pos.stopOrderId);
     const px = await market.price(symbol);
-    const tight = await broker.placeStop(symbol, pos.qty, px * 0.9995, `scn-${run.toString(36)}-t`);
+    const tight = await broker.placeStop(symbol, pos.qty, px * 0.9998, `scn-${run.toString(36)}-t`);
     store.setStopOrder(pos.id, tight);
-    console.log(`  … tight stop @ ${(px * 0.9995).toPrecision(6)} (0.05% under ${px.toPrecision(6)}), waiting for the price to touch it (≤ 20 min)`);
-    const until = Date.now() + 20 * 60_000;
+    console.log(`  … tight stop @ ${(px * 0.9998).toPrecision(6)} (0.02% under ${px.toPrecision(6)}), waiting for the price to touch it (≤ 30 min)`);
+    const until = Date.now() + 30 * 60_000;
     while (Date.now() < until && open(store)) {
       await sleep(15_000);
       await engine.reconcile();
     }
     const closed4 = store.closedPositions(10).find((p) => p.id === pos!.id);
-    ok("4 stop: fill on the exchange booked by reconcile", closed4?.exitReason === "stop", closed4 ? `@ ${closed4.exitPrice?.toPrecision(6)} · P&L ${closed4.pnl?.toFixed(4)} USDT` : "not filled in 20 minutes");
+    ok("4 stop: fill on the exchange booked by reconcile", closed4?.exitReason === "stop", closed4 ? `@ ${closed4.exitPrice?.toPrecision(6)} · P&L ${closed4.pnl?.toFixed(4)} USDT` : "not filled in 30 minutes (the testnet price did not dip 0.02%)");
     if (!closed4) await engine.flatten("scenario 4 cleanup");
   } else ok("4 stop: entry", false, "no position");
 
@@ -226,6 +227,18 @@ async function main() {
   const closed8 = pos ? store.closedPositions(20).find((p) => p.id === pos!.id) : undefined;
   ok("8 delisting: held position sold, stop cancelled", closed8?.exitReason === "delist" && (await broker.holding(symbol)) - held0 < (pos?.qty ?? 1) * 0.05, r8b.warnings[0] ?? "no position");
   risk = EMPTY_RISK;
+
+  /* 9 · the stop cancelled outside the bot: placed again */
+  await engine.runCycle(await nextSignal());
+  pos = open(store);
+  if (pos?.stopOrderId) {
+    await broker.cancelStop(symbol, pos.stopOrderId); // as if cancelled by hand in the Binance app
+    await engine.reconcile();
+    const now = open(store);
+    const orders9 = await client.request<{ orderId: number }[]>("GET", "/api/v3/openOrders", { symbol }, true);
+    ok("9 stop cancelled outside the bot: placed again", Boolean(now?.stopOrderId) && now!.stopOrderId !== pos.stopOrderId && orders9.some((o) => String(o.orderId) === now!.stopOrderId), `${pos.stopOrderId} → ${now?.stopOrderId}`);
+    await engine.flatten("scenario 9 cleanup");
+  } else ok("9 stop cancelled outside the bot: entry", false, "no position");
 
   /* clean state */
   const orders = await client.request<unknown[]>("GET", "/api/v3/openOrders", { symbol }, true);

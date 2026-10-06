@@ -655,3 +655,4 @@ Exchange (Binance, Bybit, OKX, Coinbase, KuCoin, Deribit)
 - **2026-10-06:** Uji 50% modal + SL 5% (bot 4h, §4.20) dan 1h dengan SL ≤ 5% / TP 1:2 / 50% modal (§4.21): keduanya gagal; bot tetap seperti sekarang.
 - **2026-10-06:** Riset intraday 5m/15m (§4.24): sweep & reclaim dan ORB sesi tidak punya keunggulan sebelum biaya; gagal. Loader kline mendapat jalur cadangan tanpa listing.
 - **2026-10-06:** Collector berjalan di VPS (likuidasi futures + orderbook spot 40 pair per menit). Diperbaiki: `.dockerignore` sekarang mengecualikan semua `bot/.env.*`, sehingga key tidak lagi ikut ke image Docker.
+- **2026-10-06:** Celah stop ditemukan oleh pemilik: bot hanya mengenali stop yang FILLED. Stop yang dibatalkan, kedaluwarsa (termasuk setelah terisi sebagian), ditolak, atau tidak ditemukan kini ditangani (pasang ulang / jual sisa / jual market). 41 tes; skenario testnet 9 (stop dibatalkan di luar bot → dipasang ulang) lulus. Bot lokal di Mac dimatikan.

@@ -38,8 +38,8 @@ async function main() {
   if (!stopId) throw new Error("no stop order id");
   step("stop −15% resting", `orderId ${stopId}`);
 
-  const filled = await broker.stopFill(symbol, stopId);
-  if (filled) throw new Error("stop unexpectedly filled");
+  const status = await broker.stopStatus(symbol, stopId);
+  if (status.state !== "resting") throw new Error(`stop unexpectedly ${status.state}`);
   step("stop not filled (as expected)", "ok");
 
   await broker.cancelStop(symbol, stopId);

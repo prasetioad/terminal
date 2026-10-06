@@ -15,6 +15,13 @@ export interface Fill {
   orderId: string;
 }
 
+/** Where a resting stop order stands on the exchange. */
+export type StopStatus =
+  | { state: "resting" }
+  | { state: "filled"; fill: Fill }
+  /** Cancelled (by hand or by the exchange), expired, rejected or unknown; `fill` = what it sold before it ended. */
+  | { state: "gone"; status: string; fill: Fill | null };
+
 export interface TradeRules {
   ok: boolean;
   reason?: string;
@@ -36,8 +43,8 @@ export interface Broker {
   /** Rest a stop order on the exchange; null when the bot watches the stop itself (paper). */
   placeStop(symbol: string, qty: number, stopPrice: number, clientId: string): Promise<string | null>;
   cancelStop(symbol: string, orderId: string): Promise<void>;
-  /** Whether a resting stop has been filled (and how). */
-  stopFill(symbol: string, orderId: string): Promise<Fill | null>;
+  /** Whether a resting stop is still resting, has filled, or has gone without (fully) filling. */
+  stopStatus(symbol: string, orderId: string): Promise<StopStatus>;
 }
 
 /**
@@ -95,7 +102,7 @@ export class PaperBroker implements Broker {
 
   async cancelStop(): Promise<void> {}
 
-  async stopFill(): Promise<Fill | null> {
-    return null;
+  async stopStatus(): Promise<StopStatus> {
+    return { state: "resting" }; // paper stops are filled from the bars by the engine
   }
 }
