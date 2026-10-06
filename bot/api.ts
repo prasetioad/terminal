@@ -1,10 +1,11 @@
 import http from "node:http";
 import type { BotConfig } from "./config";
 import { setupsName, type BotEngine } from "./engine";
+import { dailyReport } from "./report";
 
 /**
  * Read-mostly HTTP API for the web app's Bot panel.
- *   GET  /status /positions /trades /equity /events
+ *   GET  /status /positions /trades /equity /events /report (the daily report's text)
  *   POST /pause /resume
  * Requires `Authorization: Bearer <API_TOKEN>` when API_TOKEN is set; without a token
  * it only listens on 127.0.0.1.
@@ -116,6 +117,8 @@ export function startApi(engine: BotEngine, nextRun: () => number | null): http.
           return send(200, engine.store.equityCurve(5000));
         case "GET /events":
           return send(200, engine.store.events(200));
+        case "GET /report":
+          return send(200, { text: await dailyReport(engine, nextRun()) });
         case "POST /pause":
           engine.risk.setPaused(true, "api /pause");
           return send(200, { paused: true });

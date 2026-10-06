@@ -18,8 +18,10 @@ services:
     env_file: bot/.env.ops
     environment:
       DB_PATH: /app/bot/data/ops.sqlite
+      COLLECTOR_DIR: /app/collector/data # the daily report includes the collector's health
     volumes:
       - ./bot/data:/app/bot/data
+      - ./collector/data:/app/collector/data
     restart: unless-stopped
     stop_grace_period: 2m
 

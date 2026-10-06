@@ -165,6 +165,11 @@ export class BotStore {
     this.db.prepare("INSERT INTO events (time, level, kind, message) VALUES (?, ?, ?, ?)").run(time, level, kind, message);
   }
 
+  /** Events from `time` (ms) on, oldest first. */
+  eventsSince(time: number): EventRow[] {
+    return this.db.prepare("SELECT * FROM events WHERE time >= ? ORDER BY id").all(time) as EventRow[];
+  }
+
   events(limit = 200): EventRow[] {
     return this.db.prepare("SELECT * FROM events ORDER BY id DESC LIMIT ?").all(limit) as EventRow[];
   }

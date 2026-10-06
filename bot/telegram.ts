@@ -33,7 +33,7 @@ export class TelegramNotifier implements Notifier {
   }
 
   /** Long-poll commands until `signal` aborts. */
-  async listen(engine: BotEngine, statusText: () => Promise<string>, signal: AbortSignal): Promise<void> {
+  async listen(engine: BotEngine, statusText: () => Promise<string>, signal: AbortSignal, reportText: () => Promise<string> = statusText): Promise<void> {
     let offset = Number(engine.store.get("telegram_offset") ?? 0);
     while (!signal.aborted) {
       try {
@@ -44,7 +44,7 @@ export class TelegramNotifier implements Notifier {
           engine.store.set("telegram_offset", String(offset));
           const msg = u.message;
           if (!msg?.text || String(msg.chat.id) !== this.chatId) continue; // only the owner's chat
-          await this.handle(engine, msg.text.trim(), statusText);
+          await this.handle(engine, msg.text.trim(), statusText, reportText);
         }
       } catch {
         if (!signal.aborted) await new Promise((r) => setTimeout(r, 5000));
@@ -52,11 +52,13 @@ export class TelegramNotifier implements Notifier {
     }
   }
 
-  private async handle(engine: BotEngine, text: string, statusText: () => Promise<string>): Promise<void> {
+  private async handle(engine: BotEngine, text: string, statusText: () => Promise<string>, reportText: () => Promise<string>): Promise<void> {
     const [cmd, arg] = text.split(/\s+/);
     switch (cmd.toLowerCase().replace(/@.*$/, "")) {
       case "/status":
         return this.send(await statusText());
+      case "/report":
+        return this.send(await reportText());
       case "/positions": {
         const open = engine.store.openPositions();
         return this.send(open.length ? open.map((p) => `[${p.setup === "a" ? "A" : "v1"}] ${p.symbol} @ ${p.entryPrice.toPrecision(6)} · stop ${p.stopPrice.toPrecision(6)} · ${p.cost.toFixed(2)} USDT`).join("\n") : "No open positions");
@@ -72,7 +74,7 @@ export class TelegramNotifier implements Notifier {
         await engine.flatten("telegram /flatten");
         return;
       default:
-        return this.send("Commands: /status · /positions · /pause · /resume · /flatten CONFIRM");
+        return this.send("Commands: /status · /report · /positions · /pause · /resume · /flatten CONFIRM");
     }
   }
 }

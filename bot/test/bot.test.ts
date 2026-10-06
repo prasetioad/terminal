@@ -12,6 +12,7 @@ import { PaperBroker, type Broker, type Fill, type StopStatus } from "../broker"
 import { LIVE_CONFIRM_PHRASE, loadConfig } from "../config";
 import { BotStore } from "../db";
 import { BotEngine } from "../engine";
+import { dailyReport } from "../report";
 import { EMPTY_RISK, parseDelistTitles, type RiskList } from "../../lib/server/binanceRisk";
 
 const noRisk = async () => EMPTY_RISK;
@@ -578,6 +579,41 @@ describe("a stop that ends without filling (cancelled, expired, unknown)", () =>
       }, []);
       const broker = new BinanceSpotBroker("live", new BinanceSpotClient("https://t", "k", "s", fetchImpl));
       assert.equal((await broker.stopStatus("SOLUSDT", "7")).state, expected);
+    }
+  });
+});
+
+describe("daily report", () => {
+  it("says the bot is alive, flags missing cycles and errors, and reads the collector", async () => {
+    const fsm = await import("node:fs");
+    const os = await import("node:os");
+    const pathm = await import("node:path");
+    const Database = (await import("better-sqlite3")).default;
+    const now = Date.UTC(2026, 9, 6, 1);
+    const dir = fsm.mkdtempSync(pathm.join(os.tmpdir(), "collector-"));
+    const db = new Database(pathm.join(dir, "collector-2026-10.sqlite"));
+    db.exec("CREATE TABLE liquidations (time INTEGER, symbol TEXT, side TEXT, price REAL, qty REAL, quote REAL); CREATE TABLE depth (time INTEGER, symbol TEXT, mid REAL, spread REAL)");
+    db.prepare("INSERT INTO liquidations VALUES (?, 'BTCUSDT', 'long', 1, 1, 2000000)").run(now - 3_600_000);
+    db.prepare("INSERT INTO depth (time, symbol, mid, spread) VALUES (?, 'BTCUSDT', 1, 0)").run(now - 2 * 60_000);
+    db.close();
+    process.env.COLLECTOR_DIR = dir;
+    try {
+      const store = new BotStore(":memory:");
+      store.insertPosition({ setup: "a", symbol: "TESTUSDT", signalTime: 1, qty: 10, entryPrice: 100, entryFee: 0, cost: 1000, stopPrice: 80, stopOrderId: null, openedAt: now - 3_600_000 });
+      for (let k = 0; k < 3; k++) store.log("info", "cycle", "bar", now - k * 4 * 3_600_000);
+      store.log("error", "cycle", "boom", now - 600_000);
+      const market = { universe: async () => [], closedBars: async () => null, price: async () => 110 };
+      const engine = new BotEngine(loadConfig({ SETUPS: "a" }), store, market, new PaperBroker(store, 1000, 0.001, 0), { send: async () => {} }, () => now, noRisk);
+      const text = await dailyReport(engine, null, now);
+      assert.match(text, /Daily report/);
+      assert.match(text, /only 3 of 6 cycles/);
+      assert.match(text, /1 error\(s\).*boom/);
+      assert.match(text, /\[A\] TESTUSDT \+10\.00%/);
+      assert.match(text, /Collector 24h: 1 liquidations \(2\.0M USDT\) · 1 depth rows · last 2 min ago/);
+      assert.doesNotMatch(text, /<(?!\/?b>)/, "only <b> tags: Telegram parses HTML");
+    } finally {
+      delete process.env.COLLECTOR_DIR;
+      fsm.rmSync(dir, { recursive: true, force: true });
     }
   });
 });

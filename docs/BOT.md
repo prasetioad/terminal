@@ -76,9 +76,12 @@ npm run research:setup-v1         # backtest tanpa survivorship bias (semua pair
 | Perintah | Fungsi |
 |---|---|
 | `/status` | Mode, equity, posisi, hasil, siklus berikutnya |
+| `/report` | Laporan harian sekarang (juga dikirim otomatis setiap hari 01:00 UTC = 08:00 WIB; ubah dengan `REPORT_UTC_HOUR`) |
 | `/positions` | Posisi terbuka |
 | `/pause` · `/resume` | Hentikan / lanjutkan entry baru (posisi yang ada tetap dikelola) |
 | `/flatten CONFIRM` | **Kill switch:** jual semua posisi di market dan pause entry |
+
+**Laporan harian** (setiap bot ke Telegram-nya sendiri): equity dan perubahan 24 jam, posisi terbuka beserta P&L, aktivitas 24 jam (entry, exit, P&L realisasi, jumlah siklus, error), peringatan Binance, dan (bot Ops) kesehatan collector. Masalah ditandai di baris atas: siklus kurang dari 5 dari 6, ada error, entry di-pause, pair yang dipegang mendapat peringatan Binance, collector berhenti. **Kalau laporan pukul 08:00 WIB tidak datang, ada yang mati.**
 
 ## 4. Binance Testnet
 

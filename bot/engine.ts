@@ -439,6 +439,18 @@ export class BotEngine {
     return true;
   }
 
+  /** Open positions with their latest price (for reports). */
+  async openMarked(): Promise<{ position: Position; price: number }[]> {
+    const out: { position: Position; price: number }[] = [];
+    for (const position of this.store.openPositions()) out.push({ position, price: await this.market.price(position.symbol).catch(() => position.entryPrice) });
+    return out;
+  }
+
+  /** Binance's current warning lists (for reports). */
+  currentRisks(): Promise<RiskList> {
+    return this.riskList().catch(() => EMPTY_RISK);
+  }
+
   /** Sell everything now (kill switch). New entries stay paused afterwards. */
   async flatten(reason: string): Promise<string[]> {
     this.risk.setPaused(true, `flatten: ${reason}`);

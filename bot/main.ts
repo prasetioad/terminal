@@ -13,6 +13,7 @@ import { PaperBroker, type Broker } from "./broker";
 import { loadConfig } from "./config";
 import { BotStore } from "./db";
 import { BotEngine, setupsName, type Notifier } from "./engine";
+import { dailyReport } from "./report";
 import { BAR_MS, BinanceMarketData, SETTLE_MS, lastClosedBar } from "./market";
 import { ConsoleNotifier, TelegramNotifier } from "./telegram";
 
@@ -70,6 +71,23 @@ async function cycle(barTime: number) {
   }
 }
 
+/** The daily report at REPORT_UTC_HOUR (default 01:00 UTC = 08:00 WIB): if it does not arrive, something is down. */
+const REPORT_HOUR = Number(process.env.REPORT_UTC_HOUR ?? 1);
+let reportTimer: NodeJS.Timeout | undefined;
+function scheduleReport() {
+  const now = Date.now();
+  const today = Math.floor(now / 86_400_000) * 86_400_000 + REPORT_HOUR * 3_600_000;
+  const next = today > now ? today : today + 86_400_000;
+  reportTimer = setTimeout(async () => {
+    try {
+      await notifier.send(await dailyReport(engine, nextRun));
+    } catch (err) {
+      store.log("error", "report", (err as Error).message);
+    }
+    scheduleReport();
+  }, next - now);
+}
+
 /** Run after every 4h close (plus a settle delay); catch up on start if the last bar wasn't processed. */
 function schedule() {
   const next = lastClosedBar(Date.now()) + 2 * BAR_MS + SETTLE_MS;
@@ -88,7 +106,8 @@ async function start() {
 
   const api = startApi(engine, () => nextRun);
   const reconcile = cfg.mode === "paper" ? undefined : setInterval(() => void engine.reconcile(), 60_000);
-  if (telegram) void telegram.listen(engine, statusText, shutdown.signal);
+  if (telegram) void telegram.listen(engine, statusText, shutdown.signal, () => dailyReport(engine, nextRun));
+  scheduleReport();
 
   const bar = lastClosedBar(Date.now());
   if (Number(store.get("last_bar") ?? 0) < bar) await cycle(bar);
@@ -98,6 +117,7 @@ async function start() {
     console.log(`${signal}: shutting down`);
     shutdown.abort();
     clearTimeout(timer);
+    clearTimeout(reportTimer);
     clearInterval(reconcile);
     api.close();
     while (running) await new Promise((r) => setTimeout(r, 500)); // never stop mid-cycle
