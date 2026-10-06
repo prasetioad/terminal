@@ -476,6 +476,69 @@ Titik hijau MaxFlow (bias 4h) tanpa stochastic. SL 0,2% di bawah low 10 (atau 20
 - **Putusan:** gagal. Pergerakan 5m/15m di koin besar sejauh pola-pola ini tidak bisa dibedakan dari acak. Orderflow kline (rasio taker) tidak membantu. Kandidat intraday yang tersisa membutuhkan data yang belum dimiliki (likuidasi, orderbook) atau memakai konteks setup 4h yang sudah terbukti.
 - Catatan: daftar 30 pair adalah koin yang bertahan sampai sekarang (survivorship), sehingga hasil sebenarnya kemungkinan sedikit lebih buruk.
 
+### 4.25 Strategi intraday dari Gemini: VWAP harian + EMA20 + breakout 20 candle + lonjakan volume, 15m (riset lokal)
+
+`npx tsx research/vwap-breakout.ts`. Aturan persis seperti `crypto_intraday_backtest.py` (Gemini): close > VWAP harian (reset 00:00 UTC) dan > EMA20; close > high 20 candle sebelumnya; volume > faktor × SMA20 volume; entry di close; SL tetap, TP = rr × risiko, SL dicek sebelum TP; fee 0,1% per sisi. Grid Gemini: SL 0,8–2,0% × volume 1,2–2,0× × rr 1,5–3 (140 kombinasi). Data: 30 pair likuid, 15m sejak 2021.
+
+| Versi | Kombinasi dengan rata-rata bersih positif (IS │ OOS) | Median bersih per trade (IS │ OOS) | Default Gemini (SL 1,2%, 1,5×, 1:2) |
+|---|---|---|---|
+| 30 pair, SL terisi tepat di level (script) | **0/140 │ 0/140** | −0,26% │ −0,22% | win 32–33% · −0,26% / −0,22% · PF 0,73–0,76 |
+| Disaring ($50M volume 24 jam + ATR harian > 3%) | **0/140 │ 0/140** | −0,29% │ −0,24% | −0,29% / −0,25% |
+| SL terisi di open saat gap (realistis) | 0/140 │ 0/140 | sama (gap jarang di 15m) | sama |
+
+- Rata-rata **sebelum** fee ≈ −0,06% s/d +0,02% per trade: tidak ada keunggulan. Win rate setara acak untuk rasio TP-nya.
+- Kombinasi terbaik IS (SL 1,8%, 2×, 1:2,5): −0,25% / −0,20% per trade. Portofolio risiko 1%: −92% / −64% per tahun. Default Gemini: −99,6% / −94%. "Total return per pair" versi script: −83% s/d −94%.
+- **Putusan:** gagal, konsisten dengan §4.24. Intraday 15m berbasis harga + volume di koin likuid tidak punya keunggulan, bahkan sebelum biaya.
+
+### 4.26 Perbaikan dari Gemini: ADX, tren 1h, breakout-retest, SL berbasis ATR (riset lokal)
+
+`npx tsx research/vwap-breakout-v2.ts`. Dasar §4.25 + ADX(14) > 25 (atau > 20) + close > EMA200 1h (atau tanpa) + entry retest dengan candle konfirmasi engulfing/pinbar (atau langsung) + SL 1,5 (atau 2) × ATR14 + TP 1:2 (atau 1:1,5 / 1:3). 48 kombinasi, aturan ditetapkan sebelum melihat hasil.
+
+- **Bersih setelah fee: 0/48 kombinasi positif, IS maupun OOS.**
+- Sebelum fee: 13/48 (IS) dan 31/48 (OOS) positif. Filter memang memperbaiki rata-rata kotor dari ≈ −0,05% (§4.25) ke ≈ 0 s/d +0,12% per trade, tapi jauh di bawah fee 0,2%.
+- **Versi persis Gemini** (ADX > 25, 1h > EMA200, retest, 1,5 ATR, 1:2): win 33–34%, kotor −0,03% / +0,01%, bersih −0,23% / −0,19%, PF 0,77. Portofolio risiko 1%: −81% / −75% per tahun.
+- Terbaik IS (ADX > 25, 1h, langsung, 2 ATR, 1:3): bersih −0,14% / −0,17%; portofolio −73% / −62% per tahun. Terbaik OOS (retest, 2 ATR, 1:3): kotor +0,12%, artinya biaya impas sekitar 0,12%, hanya mungkin dengan biaya futures maker, dan IS-nya hanya +0,01%.
+- **Putusan:** gagal. Perbaikan kualitatif yang masuk akal tetap tidak menutup biaya spot. Catatan metodologi: setiap putaran "perbaiki lalu uji ulang" di data yang sama menambah risiko kebetulan, sehingga perbaikan berikutnya butuh alasan kuat yang berbeda, bukan tambahan filter.
+
+### 4.27 Diskusi Claude × Gemini, ronde 1: musiman jam, beli kapitulasi, momentum harian (riset lokal)
+
+`npx tsx research/intraday-edge.ts` · diskusi di `Discussion.md`. Data 1h, 653 pair (≥ $5M/hari), long saja.
+
+- **Musiman jam UTC:** semua jam −0,08 s/d +0,08% per jam, tanda tidak konsisten antara IS dan OOS. ❌
+- **Beli kapitulasi** (candle 1h turun ≥ 3–4×ATR dengan volume ≥ 3×; exit 3/12/24 jam atau bracket): t per trade terlihat besar (hingga 20) di IS saat BTC ikut flush, tapi **t per kejadian ≈ 0** (105–187 kejadian), dan OOS 3h/12h negatif. Rata-rata IS hanya ditopang oleh beberapa crash di 2021. Flush khusus satu koin terus turun. ❌
+- **Momentum harian** (naik ≥ 0,5–1× range sampai 12:00 UTC, pegang sampai 24:00): IS −0,12 s/d −0,46%, OOS +0,27 s/d +0,45%. Tanda berbalik. ❌
+- **Catatan metodologi:** sinyal yang muncul serempak di banyak pair harus dinilai per kejadian (per jam), bukan per trade. Kalau tidak, t-stat terlihat jauh lebih kuat dari kenyataannya.
+
+### 4.28 Diskusi Claude × Gemini, ronde 2: Hipotesis A Gemini "Momentum Runner" (riset lokal)
+
+`npx tsx research/momentum-runner.ts`. Data 1h, 653 pair. Trigger: return 24 jam ≥ +10% dengan volume 24 jam ≥ 3× rata-rata 30 hari (≥ $2M/hari). Entry: chase / pullback ke VWAP 24 jam / pullback ke EMA20. Exit: 12 jam, atau bracket (stop 2×ATR, breakeven di +1R, target 3R, maksimal 12 jam).
+
+- **Semua negatif sebelum biaya**, IS maupun OOS:
+  - chase −0,82% / −0,66% per trade (t per kejadian −7,7);
+  - pullback VWAP −0,29% / −0,38%;
+  - pullback EMA20 −0,16% / −0,10%.
+- Bracket 3R tidak lebih baik dari exit waktu: manajemen exit tidak menciptakan edge.
+- Top gainer intraday cenderung berbalik turun dalam 12 jam. Momentum hanya menang dengan holding panjang dan trailing (Setup A, 4h). ❌
+
+### 4.29 Diskusi Claude × Gemini, ronde 4: funding negatif pasca settlement, diskon basis perp-spot (riset lokal)
+
+`npx tsx research/funding-basis.ts`. Aturan persis usulan Gemini (`Discussion.md` ronde 3), dengan pembanding tanpa filter.
+
+- **Post-funding squeeze** (funding ≤ −0,03 / −0,05 / −0,08% di settlement 00/08/16 UTC, BTC 4h ≥ −2%, taker buy > 50%; beli di close candle 1h pertama, keluar 7 jam kemudian, stop 2×ATR): bruto −0,09 / −0,30 / −0,59% (IS) dan −0,15 / −0,14 / −0,18% (OOS). Pembanding −0,05 / −0,07%. ❌
+- **Diskon basis** (perp ÷ spot − 1 ≤ −0,4 / −0,6 / −0,9% dengan OI turun, 4h; keluar 12/24 jam, saat basis kembali ≥ 0, atau stop 2×ATR): **−0,6% s/d −3,3% bruto**, setiap tahun, IS maupun OOS. Pembanding −0,05 s/d −0,19%. ❌
+- **Temuan:** funding sangat negatif dan diskon basis besar adalah sinyal **bearish** yang stabil (short yang yakin, bukan short yang terpaksa). Bisa dipertimbangkan sebagai filter penghindar untuk v1/Setup A (belum diuji, butuh izin).
+- **FL-SDA** (likuidasi + depth spot, usulan Gemini) dikunci 2026-10-06 di `Discussion.md` ronde 4. Diuji setelah ≥ 100 kejadian dari data collector.
+
+### 4.30 Diskusi Claude × Gemini, ronde 6: listing baru Binance spot (riset lokal) + penutupan siklus intraday
+
+`npx tsx research/listing.ts`. 355 listing sejak 2021 dengan volume ≥ $10M di 24 jam pertama (termasuk yang sudah delist).
+
+- **Pembanding** (beli di close jam ke-0): 24 jam −3,0% / −4,6%; **72 jam −8,3% / −8,3%** (median −14 / −15%). Listing baru cenderung turun.
+- **Varian entry Gemini:** ORB 4 jam, lanjutan di jam ke-2, breakout high hari pertama. Masing-masing hanya **7–17 sinyal** per periode. D1 OOS +15,7% hanya ditopang satu trade (PNUT +251%), median −4%, t ≤ 1. ❌
+- **Penutupan siklus:** intraday spot long-only dengan biaya 0,2% dari data kline dan futures publik: tidak ada edge yang bertahan (§4.19–4.30, lebih dari 400 kombinasi). Yang tersisa:
+  - FL-SDA, dikunci di `Discussion.md`, diuji setelah ≥ 100 kejadian dari collector;
+  - filter veto basis/funding untuk v1/A, usulan, butuh izin.
+
 ## 5. Roadmap
 
 Setiap tahap punya hasil yang bisa langsung dipakai dan syarat lulus.
@@ -657,3 +720,5 @@ Exchange (Binance, Bybit, OKX, Coinbase, KuCoin, Deribit)
 - **2026-10-06:** Collector berjalan di VPS (likuidasi futures + orderbook spot 40 pair per menit). Diperbaiki: `.dockerignore` sekarang mengecualikan semua `bot/.env.*`, sehingga key tidak lagi ikut ke image Docker.
 - **2026-10-06:** Celah stop ditemukan oleh pemilik: bot hanya mengenali stop yang FILLED. Stop yang dibatalkan, kedaluwarsa (termasuk setelah terisi sebagian), ditolak, atau tidak ditemukan kini ditangani (pasang ulang / jual sisa / jual market). 41 tes; skenario testnet 9 (stop dibatalkan di luar bot → dipasang ulang) lulus. Bot lokal di Mac dimatikan.
 - **2026-10-06:** Laporan harian di Telegram (01:00 UTC / 08:00 WIB) + `/report`: tanda hidup bot, equity, posisi, aktivitas 24 jam, peringatan, dan kesehatan collector.
+- **2026-10-06:** Strategi intraday usulan Gemini (VWAP + EMA20 + breakout + volume, 15m) diuji persis sesuai script-nya (§4.25): 0/140 kombinasi positif di IS maupun OOS. Gagal.
+- **2026-10-06:** Perbaikan Gemini (ADX, tren 1h, retest, SL ATR) diuji (§4.26): 0/48 kombinasi positif setelah fee. Gagal.
