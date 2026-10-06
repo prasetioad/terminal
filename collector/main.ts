@@ -24,7 +24,8 @@ const DEPTH_PAIRS = Number(process.env.COLLECTOR_DEPTH_PAIRS ?? 40);
 /** The deepest books (BTC, ETH, …) need 5000 levels to reach ±1–5%; capped to keep the IP's weight budget for the bots. */
 const DEEP_PAIRS = 4;
 const DEPTH_HOST = "https://data-api.binance.vision";
-const LIQ_STREAM = "wss://fstream.binance.com/ws/!forceOrder@arr";
+// Binance serves futures market streams under /market/ws (the legacy /ws path connects but stays silent).
+const LIQ_STREAM = "wss://fstream.binance.com/market/ws/!forceOrder@arr";
 const BANDS = [0.0025, 0.005, 0.01, 0.02, 0.05] as const;
 /** Spot pairs that only mirror another price: no order book worth recording. */
 const PEGGED = new Set(["USDC", "FDUSD", "TUSD", "USDP", "DAI", "EUR", "EURI", "AEUR", "WBTC", "WBETH", "BNSOL", "USD1", "XUSD", "BFUSD", "USDE", "RLUSD", "U", "PAXG"]);
