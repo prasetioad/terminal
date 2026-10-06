@@ -12,3 +12,4 @@ bot/data
 bot/.env.local
 bot/.env.ops
 bot/.env.paper
+collector/data

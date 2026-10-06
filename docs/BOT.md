@@ -150,6 +150,20 @@ docker compose logs -f bot
 - **Ke live:** buat API key live (Spot only, withdrawal mati, dibatasi ke IP VPS), isi saldo USDT di akun Spot, lalu di `bot/.env.ops` set `MODE=live`, `LIVE_CONFIRM=I_UNDERSTAND_THIS_TRADES_REAL_MONEY`, dan ganti `BINANCE_API_KEY`/`BINANCE_API_SECRET` dengan key live. Kunci tidak pernah dikirim lewat chat: tulis di file lokal yang di-ignore, lalu salin hanya baris itu ke server.
 - Jangan trading manual di koin yang sedang dipegang bot ops. Bot hanya memakai USDT yang bebas.
 
+## 7c. Collector data pasar (likuidasi dan orderbook)
+
+Container `collector` merekam data yang tidak tersedia di arsip Binance, untuk riset nanti (Tahap 7 F6). Hanya data publik, tanpa key.
+
+| Data | Sumber | Isi |
+|---|---|---|
+| Likuidasi | Stream futures `!forceOrder@arr` (semua kontrak USDT-M) | waktu, pair, sisi (long/short yang dilikuidasi), harga, jumlah, nilai USDT. Binance mengirim paling banyak 1 per pair per detik, sehingga kaskade tercatat sebagian |
+| Orderbook | REST spot setiap menit, 40 pair paling likuid (5000 level untuk 4 teratas, 500 untuk lainnya) | mid, spread, USDT di bid/ask dalam ±0,25 / 0,5 / 1 / 2 / 5%, jangkauan level |
+
+- File: `collector/data/collector-YYYY-MM.sqlite` (satu per bulan), perkiraan ±25–45 MB per hari.
+- Log ringkasan setiap jam: `docker compose logs collector`.
+- Collector berhenti mengambil orderbook untuk sisa menit itu kalau weight API IP di atas 3.000/menit, supaya bot tetap aman.
+- **Tidak ada backup otomatis** (data tidak bisa diunduh ulang). Salin bulan yang sudah selesai ke laptop secara berkala.
+
 ## 8. Konfigurasi
 
 Semua pengaturan ada di [bot/.env.example](../bot/.env.example), lengkap dengan penjelasan. Nilai di luar batas aman ditolak saat start (misalnya risiko per trade maksimal 5%).

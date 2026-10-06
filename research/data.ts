@@ -125,15 +125,26 @@ export async function loadSeries(symbol: string, interval: string, fromYear: num
   const dir = path.join(CACHE_DIR, "klines", interval);
   const file = path.join(dir, `${symbol}.json`);
   if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf8"));
-  const keys = (await listBucket(`data/spot/monthly/klines/${symbol}/${interval}/`, false)).filter((k) => {
-    const m = k.match(/-(\d{4})-\d{2}\.zip$/);
-    return m && Number(m[1]) >= fromYear;
-  });
+  const prefix = `data/spot/monthly/klines/${symbol}/${interval}/`;
+  // The bucket listing throttles heavy use: then the monthly keys are generated and missing months (404) skipped.
+  let optional = false;
+  let keys: string[];
+  try {
+    keys = (await listBucket(prefix, false)).filter((k) => {
+      const m = k.match(/-(\d{4})-\d{2}\.zip$/);
+      return m && Number(m[1]) >= fromYear;
+    });
+  } catch {
+    optional = true;
+    keys = [];
+    for (let d = new Date(Date.UTC(fromYear, 0, 1)); d.getTime() < Date.now(); d.setUTCMonth(d.getUTCMonth() + 1)) keys.push(`${prefix}${symbol}-${interval}-${d.toISOString().slice(0, 7)}.zip`);
+  }
   // Every listed month must arrive: a partial or empty series is never cached.
   const months = await Promise.all(
     keys.map((key) =>
       slot(async () => {
         const res = await fetchWithRetry(`${ARCHIVE}/${key}`);
+        if (optional && res.status === 404) return [];
         if (!res.ok) throw new Error(`${key}: HTTP ${res.status}`);
         const rows = parseRows(unzipSingle(Buffer.from(await res.arrayBuffer())));
         if (!rows.length) throw new Error(`${key}: no rows`);

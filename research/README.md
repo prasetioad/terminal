@@ -24,6 +24,9 @@ npx tsx research/setup-v1.ts --stoch 5,3,3
 | `tp.ts` | Take-profit methods on the bot's entries: chandelier multiples, volume-adaptive trails, volume-climax exits, profit locks, Turtle exit (A); trailing after the first red dot by breadth/volume (v1.2). |
 | `carry.ts` | Funding carry (long spot + short perp while funding is high): standalone and as a sleeve. |
 | `maximize.ts` | Setup A re-entry, pyramiding, tighter spike trails, and funding carry as a third sleeve, combined with v1.2. |
+| `h1.ts` | MaxFlow + Stochastic only on 1h candles (no other filter): variants, break-even cost, portfolios at three cost levels. |
+| `intraday-pairs.ts` | 5m klines since 2022 for 30 liquid pairs (intraday research). |
+| `intraday.ts` | Sweep & reclaim and session opening-range breakouts on 5m/15m with delta filters, 1R/2R targets, three cost levels. |
 | `preload.ts` | Fill the kline cache for one interval (`npx tsx research/preload.ts 1h`, resumable; the 1h cache is ~1.3 GB). |
 | `variants.ts` | Upgrade research for v1.1 (H1–H8: breadth, ranking, sizing, slots, risk cap per bar, exits, BTC regime, stoch-only). Bot-like compounding portfolio marked to market every bar; grid selected on in-sample only. Dataset cached in `research/.cache/variants-dataset.json`. |
 | `setup-v1.ts` | Backtest with point-in-time liquidity (trailing 30-day average daily quote volume at the signal), breadth (pairs signalling on the same bar), in-/out-of-sample split at 2024-07-01, per-year results, listed vs delisted, bootstrap 95% CI and a bot-like portfolio (most liquid first, ≤ 15 open, 1% risk). |

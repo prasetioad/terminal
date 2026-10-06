@@ -388,6 +388,94 @@ Gabungan v1.2 + Setup A dengan trailing lonjakan (§4.16). Filter RS Setup A dil
 
 **Catatan: trailing dikunci (ratchet) atau tidak?** Chandelier = close tertinggi − k × ATR. Close tertinggi tidak pernah turun, tapi ATR naik saat volatilitas melonjak (sering saat harga jatuh), sehingga garis trailing bisa turun. Diuji versi yang hanya boleh naik (gabungan, Calmar IS │ OOS): tanpa trailing lonjakan 1,40 │ 1,76 → dikunci 1,45 │ 1,80 (sedikit lebih baik); **dengan trailing lonjakan (bot) 1,99 │ 2,29 → dikunci 1,83 │ 2,19 (lebih buruk)**, terutama 2024 (+66,9 → +55,2%). Setelah trailing dirapatkan ke 4×ATR, ruang dari ATR yang melebar justru mencegah exit terlalu cepat di guncangan setelah lonjakan. Tetap tidak dikunci.
 
+### 4.19 MaxFlow + Stochastic saja di candle 1h (riset lokal)
+
+`npx tsx research/h1.ts`. Tanpa breadth, RS, atau filter lain (hanya pair ≥ $1M/hari). Exit di titik merah pertama, stop −15%. Rata-rata per trade **kotor** sama dengan biaya impas; nilai bersih dihitung di 0,04% (futures limit), 0,1%, dan 0,2% (spot market).
+
+| Varian | IS kotor (t) │ bersih 0,04% / 0,2% | OOS kotor (t) │ bersih 0,04% / 0,2% | Lama |
+|---|---|---|---|
+| Titik hijau + stoch (5 atau 14) | +0,42% (4,5) │ +0,38% / +0,22% | **+0,01% (0,1)** │ −0,03% / −0,19% | 25 jam |
+| + stoch 5,3,3 | +0,47% (2,9) │ +0,43% / +0,27% | +0,23% (1,2) │ +0,19% / +0,03% | 26 jam |
+| + stoch 14,3,3 | +0,43% (4,5) │ +0,39% / +0,23% | −0,03% │ −0,07% / −0,23% | |
+| Titik hijau pertama + stoch | +0,39% (4,2) │ +0,35% / +0,19% | +0,01% │ −0,03% / −0,19% | |
+| Titik hijau saja | +0,36% (6,4) │ +0,32% / +0,16% | −0,04% │ −0,08% / −0,24% | |
+| Tanpa bias 4h | +0,21% (6,7) │ +0,17% / +0,01% | **−0,32% (−9,1)** │ −0,36% / −0,52% | |
+
+- **Keunggulan di 2021–pertengahan 2024 hilang di OOS** (rata-rata kotor sekitar 0%). Biaya impasnya terlalu kecil bahkan untuk futures maker.
+- **Portofolio** (risiko 1%, ≤ 15 posisi, ~1.200 trade/tahun): semua varian rugi di 0,2% dan 0,1%. Di 0,04%: −7,6% / −18,5% per tahun (dasar). Hanya 5,3,3 yang hampir impas (+0,9% / +2,9%, DD −33%). Per tahun (dasar, 0,04%): 2021 +14%, 2022 −5%, 2023 −15%, 2024 −28%, 2025 −36%, 2026 +15%.
+- **Bias 4h tetap penting:** tanpa bias, hasilnya jauh lebih buruk (sejalan dengan §4.9 di 4h).
+- **Putusan:** tidak ada keunggulan yang bisa ditradingkan di 1h dengan MaxFlow + Stochastic saja. Tidak ditambahkan ke bot atau scanner. Sejalan dengan §4.7 (D): di 1h, keunggulan hanya muncul dengan filter kondisi pasar, dan itu pun tipis.
+
+### 4.20 Posisi 50% modal dan SL maksimal 5% (riset lokal)
+
+Gabungan v1.2 + Setup A dengan aturan bot. Calmar IS │ OOS, CAGR, DD:
+
+| Varian | IS | OOS | Trade/tahun · win | DD terburuk (2021 → sekarang) |
+|---|---|---|---|---|
+| **Bot sekarang** (risiko 1% / 0,5%, stop asli) | **+26,9% / −13,5% / 1,99** | **+33,6% / −14,7% / 2,29** | 130 · 58% | −21,9% |
+| 50% modal per posisi, SL ≤ 5% | +25,7% / −47,0% / 0,55 | +43,7% / −41,0% / 1,07 | 41–45 · 31–37% | **−52,8%** |
+| 50% modal, stop asli | +21,6% / −38,8% / 0,56 | +37,6% / −32,9% / 1,14 | 30 · 51–60% | −51,0% |
+| Ukuran berbasis risiko, SL ≤ 5% | +27,4% / −26,8% / 1,02 | +20,9% / −23,4% / 0,89 | 125–131 · 35–38% | −35,0% |
+
+- **SL 5% terlalu rapat untuk kedua setup:** v1 yang kena stop naik dari 11–19% ke 51–55%, Setup A dari 3–5% ke 68–74%. Pantulan v1 normalnya turun 8–12% dulu; stop Setup A normalnya sekitar 20% (8×ATR).
+- **Posisi 50% = paling banyak 2 posisi:** diversifikasi hilang, dan hasil tahunan jadi seperti lotre (2024 +207% / DD −53%, 2025 −25%).
+- **Putusan:** tidak dipakai.
+
+### 4.21 1h MaxFlow + Stochastic dengan SL ≤ 5%, TP 1:2, dan 50% modal per posisi (riset lokal)
+
+Entry seperti §4.19 (titik hijau + stoch cross < 20, bias 4h). SL tetap −5% (TP +10%), atau SL di low 10 candle (1–5%, TP 2R). Kalau SL dan TP tersentuh di candle yang sama, dihitung SL. Posisi 50% modal (≤ 2 bersamaan). Impas dengan biaya 0,2% butuh TP tercapai sekitar 34–35%.
+
+| Varian | IS: TP tercapai · bersih/trade | OOS: TP tercapai · bersih/trade | Portofolio 0,2% IS │ OOS (CAGR / DD) |
+|---|---|---|---|
+| Stoch 5\|14, SL 5%, TP 10% | 37,6% · +0,44% | **32,2% · −0,37%** | −13% / −67% │ −58% / −92% |
+| Stoch 5,3,3, SL 5%, TP 10% | 39,1% · +0,66% | 31,9% · −0,42% | −34% / −86% │ −57% / −89% |
+| Stoch 5\|14, SL swing (rata-rata 2%), TP 2R | 35,2% · −0,07% | 34,0% · −0,08% | −70% / −99% │ −67% / −92% |
+| Stoch 5,3,3, SL swing, TP 2R | 36,5% · +0,04% | 32,4% · −0,15% | −53% / −95% │ −62% / −90% |
+
+- $98 sejak 2021 → $0–8; 12 bulan terakhir → $33–55. Tahun 2025: −69 s/d −86%.
+- **Putusan:** gagal total. Di OOS, TP tercapai di bawah titik impas. Ukuran 50% memperbesar kerugian. Tidak dipakai.
+
+### 4.22 1h: entry di titik hijau, SL di bawah swing low, TP di titik merah (riset lokal)
+
+Titik hijau MaxFlow (bias 4h) tanpa stochastic. SL 0,2% di bawah low 10 (atau 20) candle, maksimal 15%. Exit di titik merah pertama. Pair ≥ $1M/hari.
+
+| | IS | OOS |
+|---|---|---|
+| Kena SL | 55% | **60%** |
+| Win rate · rata-rata menang / kalah | 37% · +4,1% / −2,2% | 33% · +3,9% / −1,9% |
+| Jarak SL rata-rata · lama posisi | 2,8% · 11 jam | 2,3% · 10 jam |
+| Rata-rata kotor / bersih (0,2%) per trade | +0,08% / −0,13% | +0,01% / **−0,19%** |
+| Portofolio risiko 1%, biaya 0,2% (CAGR / DD) | −54% / −95% | −66% / −92% |
+| Portofolio 50% modal, biaya 0,2% | −80% / −99,7% | −87% / −99% |
+
+- Swing 10 dan 20 candle hampir identik: titik hijau muncul setelah penurunan, sehingga low-nya sama.
+- Rugi di setiap tahun 2021–2026. $98 sejak 2021 → $0–2; 12 bulan terakhir → $6 (50% modal) / $36 (risiko 1%).
+- 60% trade menyentuh swing low sebelum titik merah: harga sering menyapu low terakhir sebelum memantul. Stop di balik level yang jelas rawan kena sweep (sama dengan temuan §4.3).
+- **Putusan:** gagal. Tidak dipakai.
+
+### 4.23 1h: titik hijau + stoch cross < 30, SL di bawah swing low, TP 1:1 / 1:2 / titik merah (riset lokal)
+
+| TP | IS: kena SL · win · kotor/trade | OOS: kena SL · win · kotor/trade | Bersih 0,2% (IS │ OOS) | Portofolio risiko 1% (IS │ OOS CAGR) |
+|---|---|---|---|---|
+| 1:1 | 49% · 51% · +0,05% | 50% · 50% · +0,09% | −0,15% │ −0,11% | −40% │ −44% |
+| 1:2 | 65% · 35% · +0,12% | 66% · 34% · +0,14% | −0,09% │ −0,06% | −36% │ −43% |
+| Titik merah | 57% · 35% · +0,08% | 60% · 33% · +0,08% | −0,12% │ −0,12% | −41% │ −52% |
+
+- Jarak SL rata-rata 2,2–2,6%, lama posisi 7–15 jam, sekitar 1.600–1.700 trade per tahun. Rugi di setiap tahun 2021–2026 untuk semua TP; 50% modal lebih buruk (−49% s/d −86% per tahun).
+- Rata-rata kotor per trade (+0,05% s/d +0,14%) lebih kecil dari biaya spot. Hanya TP 1:2 di biaya futures limit order (≈ 0,04%) yang tipis positif (≈ +0,1% per trade); tidak cocok untuk akun spot.
+- **Putusan:** gagal. Ini percobaan ke-5 MaxFlow di 1h (§4.19, 4.21–4.23), dengan kesimpulan yang sama.
+
+### 4.24 Intraday 5m/15m: sweep & reclaim dan opening range breakout per sesi (riset lokal)
+
+`npx tsx research/intraday-pairs.ts` (data 5m, 30 pair paling likuid, 2022 → sekarang) · `npx tsx research/intraday.ts`. Long saja (akun spot). Aturan ditetapkan sebelum melihat hasil (lihat kepala skrip). 24 kombinasi: 2 strategi × 5m/15m × filter delta (tanpa / pembeli > 50% / > 55% + volume ≥ 1,5×) × TP 1R/2R.
+
+- **Rata-rata per trade *sebelum biaya*: −0,07% s/d +0,003% di semua 24 kombinasi, IS maupun OOS** (n = 6 ribu s/d 120 ribu trade per kombinasi). Tidak ada keunggulan sama sekali, bahkan sebelum fee.
+  - Sweep & reclaim: target tercapai 46–48% (1R) / 25–29% (2R), sama dengan kebetulan acak. Filter delta tidak mengubah apa pun.
+  - ORB sesi: −0,03% s/d −0,07% per trade sebelum biaya; target 1R tercapai 40–44%.
+- Portofolio dari 6 kombinasi terbaik IS: −43% s/d −92% per tahun di biaya 0,15%; −17% s/d −56% bahkan di biaya futures maker 0,04%. Rugi setiap tahun.
+- **Putusan:** gagal. Pergerakan 5m/15m di koin besar sejauh pola-pola ini tidak bisa dibedakan dari acak. Orderflow kline (rasio taker) tidak membantu. Kandidat intraday yang tersisa membutuhkan data yang belum dimiliki (likuidasi, orderbook) atau memakai konteks setup 4h yang sudah terbukti.
+- Catatan: daftar 30 pair adalah koin yang bertahan sampai sekarang (survivorship), sehingga hasil sebenarnya kemungkinan sedikit lebih buruk.
+
 ## 5. Roadmap
 
 Setiap tahap punya hasil yang bisa langsung dipakai dan syarat lulus.
@@ -470,7 +558,7 @@ Setiap tahap punya hasil yang bisa langsung dipakai dan syarat lulus.
 | **F3 · Diagnosis** | Tabel per kelompok IS │ OOS (seperti §4.7/§4.12) untuk entry; untuk peringatan: seberapa sering tanda muncul sebelum titik puncak vs sebelum SL | Lokal | Fitur mana yang konsisten di kedua periode |
 | **F4 · Uji aturan** | Skor confluence (−1/0/+1 per fitur yang lulus F3) → pengali exposure; peringatan exit diuji sebagai TP sebagian. Dipilih di IS, dilaporkan di OOS, per tahun. Koin tanpa futures = netral (1×) | Lokal | Lulus/gagal per aturan, dibandingkan dengan v1.2 + A saat ini |
 | **F5 · Implementasi (kalau lulus)** | Engine bersama → kolom/badge "Confluence" di scanner, panel OI/funding di chart, opsi pengali exposure di bot (default mati), peringatan Telegram (tanpa exit otomatis kecuali terbukti) | App + bot lokal | Paper lokal |
-| **F6 · Collector ke depan** | Rekam yang tidak punya riwayat gratis: likuidasi (stream `forceOrder`), snapshot orderbook, OI/funding live, pengumuman Binance, judul berita (RSS gratis) untuk diuji nanti | VPS (**perlu persetujuan**, ukuran disk dihitung dulu) | Data sendiri untuk uji 3–6 bulan lagi |
+| **F6 · Collector ke depan** ✅ mulai 2026-10-06 | Rekam yang tidak punya riwayat gratis: likuidasi (stream `forceOrder`), snapshot orderbook, OI/funding live, pengumuman Binance, judul berita (RSS gratis) untuk diuji nanti | VPS (**perlu persetujuan**, ukuran disk dihitung dulu) | Data sendiri untuk uji 3–6 bulan lagi |
 | **Pengaman delisting** ✅ 2026-10-05 | Bot tidak entry di pair yang akan di-delist / bertag Monitoring; posisi di pair yang diumumkan delisting dijual; scanner memberi label | Bot + scanner | Perlindungan |
 
 **Aturan main:**
@@ -563,3 +651,7 @@ Exchange (Binance, Bybit, OKX, Coinbase, KuCoin, Deribit)
 - **2026-10-05:** Skenario eksekusi testnet lulus semua (`npm run bot:testnet-scenarios`): entry A + stop di exchange, restart, exit trailing, stop terisi, penjualan manual, pause/flatten. Ditemukan dan diperbaiki: koin yang sudah ada di akun bisa tercampur dengan posisi bot, sehingga sekarang pair seperti itu dilewati di testnet/live.
 - **2026-10-05:** 🔴 **Bot Ops LIVE** di VPS atas keputusan pemilik: uji eksekusi dengan $98,60 USDT. Aturan sama dengan bot paper (v1.2 titik hijau pertama + Setup A RS < −10%, trailing lonjakan) plus `MIN_SIZE_MAX_RISK=0.015` untuk akun kecil. Key live: Spot only, withdrawal mati, IP VPS. Database testnet diarsipkan; backup harian mencakup database live. Siklus pertama: 463 pair, 0 error.
 - **2026-10-05:** Pengaman peringatan Binance: jadwal delisting resmi (bot live) atau pengumuman (paper/scanner), dan tag Monitoring. Tidak entry, posisi yang akan di-delist dijual, label di scanner. Skenario testnet 8/8 lulus. Saat dipasang: STGUSDT dijadwalkan delisting 2026-10-06; 32 pair USDT bertag Monitoring.
+- **2026-10-06:** MaxFlow + Stochastic saja di 1h (§4.19): keunggulan IS (+0,4% per trade kotor) hilang di OOS (sekitar 0%); semua portofolio rugi, bahkan di biaya futures maker. Tidak dipakai.
+- **2026-10-06:** Uji 50% modal + SL 5% (bot 4h, §4.20) dan 1h dengan SL ≤ 5% / TP 1:2 / 50% modal (§4.21): keduanya gagal; bot tetap seperti sekarang.
+- **2026-10-06:** Riset intraday 5m/15m (§4.24): sweep & reclaim dan ORB sesi tidak punya keunggulan sebelum biaya; gagal. Loader kline mendapat jalur cadangan tanpa listing.
+- **2026-10-06:** Collector berjalan di VPS (likuidasi futures + orderbook spot 40 pair per menit). Diperbaiki: `.dockerignore` sekarang mengecualikan semua `bot/.env.*`, sehingga key tidak lagi ikut ke image Docker.

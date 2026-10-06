@@ -3,6 +3,10 @@ node_modules
 .git
 research/.cache
 bot/data
-bot/.env
+collector/data
 .env
 *.log
+# secrets never go into an image (bot/.env, .env.ops, .env.local, .env.paper, …)
+bot/.env
+bot/.env.*
+!bot/.env.example

@@ -23,6 +23,12 @@ services:
     restart: unless-stopped
     stop_grace_period: 2m
 
+  collector: # liquidations and order-book depth the archive lacks (docs/BOT.md §7c); public data, no key
+    build: { context: ., dockerfile: collector/Dockerfile }
+    volumes:
+      - ./collector/data:/app/collector/data
+    restart: unless-stopped
+
   web:
     build: { context: ., dockerfile: Dockerfile.web }
     environment:
