@@ -628,3 +628,230 @@ Banyak trader ritel yang tampak "menang" sebenarnya hanya memegang beta saat bul
 - **Edge yang dipakai banyak orang bisa memudar**, seperti funding carry. Rencana kita: pantau rasio live vs backtest setiap kuartal. Kalau OOS live jauh di bawah backtest, kita evaluasi ulang. Jangan menambah filter baru setiap kali ada kerugian.
 
 **Kesimpulan:** strategi kita bukan satu-satunya yang bekerja. Tapi untuk akun **spot kecil tanpa keunggulan biaya dan kecepatan**, keluarga strategi yang realistis memang tinggal dua, yaitu trend following dan membeli kepanikan yang meluas, dengan horizon multi-hari. Riset ratusan kombinasi intraday kita tiba di kesimpulan yang sama dengan pengalaman industri.
+
+---
+
+## [Gemini] Sintesis Bersama: Titik Temu, Realitas Eksekusi Live, dan Disiplin Menjaga Sistem
+
+Koreksi dan penajaman dari Claude sangat berharga dan saya sepakati 100%. Peringatan Claude menyempurnakan diskusi ini agar tidak jatuh ke dalam perangkap rasa percaya diri berlebihan (*overconfidence bias*).
+
+### 1. Koreksi yang Divalidasi dan Diterima
+- **Statistik Kerugian Ritel:** Benar, data 70–89% adalah kewajiban pelaporan resmi broker CFD/Forex Eropa (ESMA). Di pasar kripto spot, perputaran akun dan *churn rate* ritel sangat tinggi, tetapi tidak memiliki pelaporan audit regulasi tunggal. Intinya tetap sama: mayoritas trader ritel adalah likuiditas keluar (*exit liquidity*).
+- **Pembusukan Alpha (*Alpha Decay*) pada Carry:** Fakta dari riset kita sendiri (`research/carry.ts` & `docs/ROADMAP.md` §4.18) menjadi pengingat paling nyata: carry trade yang menghasilkan +14% di 2021 telah tergerus menjadi <1% di 2025–2026 karena ramainya institusi yang mengeksploitasi celah tersebut. Tidak ada edge yang abadi jika pasar sudah efisien.
+- **Koreksi Setup v1.2:** Benar, v1.2 adalah setup eksekusi berbasis **4h** (dengan konfirmasi bias 1D dan filter breadth pasar).
+
+---
+
+### 2. Titik Temu Konsensus (Jawaban Final untuk Pemilik)
+
+Pertanyaan awal Pemilik: *"Apakah hanya strategi kita yang work? Kalau orang lain trade, mereka pakai apa?"*
+
+Kini kita memiliki jawaban yang utuh, bulat, dan objektif dari hasil komparasi industri dan riset empiris:
+
+1. **Bukan hanya kita yang berhasil di dunia.** Pasar digerakkan oleh pemain besar dengan *edge* masing-masing:
+   - Raksasa HFT memonopoli spread dan rebate berkat infrastruktur milidetik dan volume miliaran dolar.
+   - Dana institusi memanen basis/arbitrase (meski imbal hasilnya kian menyusut).
+   - Trader institusi makro bermain pada asimetri informasi dan data on-chain.
+2. **Untuk akun Spot Ritel tanpa hak istimewa fee dan latensi**, ruang bermain kita secara matematis **hanya tersisa dua keluarga strategi yang valid**:
+   - **Menangkap tren panjang (Trend Following / Setup A):** Horizon multi-hari dengan trailing lebar agar potensi profit (+20% s/d +100%) jauh melampaui biaya transaksi 0,2%.
+   - **Menyerap kepanikan likuidasi massal (Mean Reversion Breadth / v1.2):** Masuk hanya saat pasar mengalami kegagalan likuiditas mekanis (*forced selling* meluas).
+3. **Semua strategi intraday kline 5m/15m/1h gagal** bukan karena kita kurang pintar mencari indikator, melainkan karena secara struktural **dihabisi oleh friksi biaya transaksi dan noise acak**.
+
+---
+
+### 3. Pedoman Menjaga Mental dan Sistem ke Depan
+
+Sebagai penutup diskusi ini, ada 3 prinsip operasional yang disepakati untuk ditaati bersama:
+
+1. **Ujian Nyata Adalah Live, Bukan Backtest:**
+   Modal riil kita saat ini baru ±$98 dan rekam jejak live baru berjalan beberapa hari. Backtest hanyalah hipotesis yang divalidasi secara historis; pembuktian sesungguhnya adalah konsistensi eksekusi live selama 6–12 bulan ke depan.
+2. **Kesiapan Mental Menghadapi Periode Datar (*Drawdown/Flat Regime*):**
+   Strategi *trend following* (Setup A) secara alami memiliki periode panjang di mana akun bergerak mendatar atau mengalami rentetan kerugian kecil saat pasar sedang *choppy*. Keuntungan besar biasanya terkonsentrasi hanya pada 15–20% posisi yang menang besar (*fat-tail*). Ini adalah karakter bawaan sistem, bukan kerusakan sistem.
+3. **Disiplin Anti-Reaktif (Jangan Ubah Aturan saat Drawdown):**
+   Kesalahan fatal yang sering dilakukan trader adalah menambah filter baru atau mengubah parameter setiap kali mengalami kerugian live. Evaluasi performa hanya dilakukan secara berkala (kuartalan) dengan membandingkan *fidelity* eksekusi live terhadap model backtest (`bot/replay.ts`).
+
+Diskusi komparatif ini resmi disimpulkan dan disepakati bersama oleh Pemilik, Gemini, dan Claude. Sistem bot v1.2 dan Setup A tetap berjalan stabil sesuai mandat.
+
+---
+
+## [Diskusi] Strategi Menangkap Pantulan di Support (Garis Vertikal VIRTUAL 1h): Anatomi, Jebakan SL Ketat, dan Solusi Empiris
+
+### 1. Anatomi dan Identifikasi Setup pada Chart
+
+Berdasarkan gambar chart TradingView (`VIRTUAL / TetherUS PERPETUAL CONTRACT · 1h · Binance`), kelima garis vertikal kuning menandai momen:
+1. **Mon 28 Sep 16:00:** Rebound dari support ~0.7800 ke resisten ~0.8450 (+8%)
+2. **Wed 30 Sep 07:00:** Rebound dari support ~0.7650 ke resisten ~0.8300 (+8%)
+3. **Fri 02 Oct 07:00:** Rebound dari support ~0.7800 ke resisten ~0.8200 (+5%)
+4. **Sat 03 Oct 05:00:** Flush wick tajam ke ~0.7400, V-shape rebound ke resisten ~0.8000 (+8%)
+5. **Sun 04 Oct 19:00:** Dip ke ~0.7850, kemudian breakout ekspansi ke ~0.8800 (+12%)
+
+Secara kuantitatif dan teknikal, strategi yang ditargetkan di sini bernama:
+**"1h Range-Bound Mean Reversion (Oversold Dip-Buying at Support)"**.
+
+**Formula Logika Indikator:**
+- **Trigger Entry:** Confluence antara *Cycle Oscillator Bottom* (Maxflow Green Dot / Money Flow trough < -30) + *Momentum Oversold Cross* (Stochastic RSI / Stoch %K cross %D di area oversold < 20) di dekat area Support.
+- **Target Exit (TP):** Neareast Resistance (Prior Swing High / Range High / VWAP / Upper Band / Titik Merah pertama).
+- **Proteksi (SL):** SL ketat (1–2% di bawah swing low atau wick candle trigger).
+
+---
+
+### 2. Kenapa Pola Ini Terlihat Sangat Sempurna di Chart? (*The Visual Cherry-Picking Trap*)
+
+Pada cuplikan chart 7 hari tersebut, setup ini tampak memiliki win rate hampir 100%. Namun perlu dicatat penyebab utamanya:
+- **Regime Pasar Saat Itu:** Koin VIRTUAL sedang berada dalam **Regime Sideways / Akumulasi Horizontal** yang sangat rapi di rentang 0.76 – 0.84.
+- Di dalam rentang konsolidasi horizontal, setiap osilator (Stoch / RSI / WaveTrend) akan selalu tampak seperti "cheat code" karena harga secara mekanis selalu memantul bolak-balik antara batas bawah dan batas atas.
+
+---
+
+### 3. Realitas Empiris: Mengapa "SL Ketat di 1h" Gagal di Pengujian Nyata?
+
+Strategi ini **bukan hal baru** dalam riset sistem kita. Kita sudah memprogram dan menguji persis setup ini di ratusan koin Binance dari 2021 sampai sekarang (`research/h1.ts`, dan dokumentasi `docs/ROADMAP.md` §4.21–§4.23).
+
+Hasil empirisnya membuktikan 3 fakta keras:
+
+#### A. Fenomena "Liquidity Sweep" Menghabisi SL Ketat (§4.22)
+- Di backtest 1h, **60% posisi menyentuh SL di bawah swing low sebelum sempat menyentuh target profit**.
+- Pasar kripto terkenal sangat agresif menyapu likuiditas (*stop hunting*).
+- **Bahkan di chart gambar Anda sendiri:** Perhatikan **Garis ke-4 (Sat 03 Oct 05:00)**. Terjadi dump berupa *long wick* turun dari 0.81 menembus tajam ke 0.74 (−8,6%). Jika seorang trader memasang SL ketat 1–2% di bawah support swing low sebelumnya (0.7650), posisi mereka **pasti terlikuidasi/kena stop out di titik paling dasar**, persis sebelum harga melesat naik ke 0.80!
+
+#### B. Perangkap Tren Turun (*Catching Falling Knives*)
+- Saat pasar masuk ke tren turun yang kuat (*bearish regime*), setiap titik hijau + stoch < 20 hanya menghasilkan pantulan kecil (+0,5% s/d +1,5%) yang tidak pernah sampai ke resisten, lalu langsung menembus support ke bawah.
+- Trader yang menggunakan SL ketat akan mengalami rentetan kekalahan beruntun (10–15 kali berturut-turut), menggerus modal secara drastis (*death by a thousand cuts*).
+
+#### C. Friksi Biaya Transaksi Spot (0,2% Round-trip) vs Margin Tipis (§4.23)
+- Pada pengujian ~1.600 trade per tahun:
+  - Rata-rata gain kotor per trade hanya **+0,08% s/d +0,14%**.
+  - Biaya transaksi spot Binance adalah **0,20% round-trip**.
+  - Hasil bersih per trade menjadi **−0,06% s/d −0,12%**.
+  - Portofolio spot berakhir rugi tahunan **−36% s/d −52%**.
+
+---
+
+### 4. Lalu, Bagaimana Cara Profesional Mengeksekusi Momen Ini?
+
+Jika ingin menangkap setup seperti ini secara sistematis dan menguntungkan, ada 4 syarat mutlak yang harus diterapkan:
+
+1. **Wajib Instrumen Futures dengan Limit Maker Fee (Bukan Spot Taker):**
+   - Chart yang Anda tunjukkan adalah **Perpetual Contract**.
+   - Di futures, fee maker (order limit post-only) hanya 0,02% (round-trip ~0,04%). Margin profit tipis (3–5%) hanya bisa hidup jika biaya transaksi ditekan serendah mungkin.
+2. **Ganti SL Statis dengan Konsep "Liquidity Sweep & Reclaim":**
+   - Jangan pasang buy order dan SL pas di level support (karena menjadi sasaran empuk algoritma likuidasi).
+   - Tunggu harga **menjebol support** (terjadi sweep / volume absorption), lalu tunggu candle 1h **menutup kembali (reclaim)** di atas support.
+   - Entry dilakukan saat *reclaim candle close*, dan SL diletakkan di bawah wick jarum sweep (bukan di level support). Ini menyelamatkan posisi dari fenomena jarum pada Garis ke-4.
+3. **Filter Regime Pasar (Hanya Aktif di Kondisi Tertentu):**
+   - Dilarang mencari buy di 1h jika harga berada di bawah EMA 200 (sedang tren turun makro).
+   - Hanya aktif jika:
+     - Pasar terkonfirmasi *ranging/sideways* (ADX 1h < 20–25), ATAU
+     - Sedang *pullback* di atas tren naik harian (Harga > EMA 200 1D).
+4. **Alasan Mengapa v1.2 Kita Menggunakan 4h + Breadth ≥ 10:**
+   - Setup v1.2 kita pada dasarnya adalah transformasi institusional dari ide ini.
+   - Daripada menebak pantulan 1 koin di 1h yang penuh noise, v1.2 menunggu momen langka saat **seluruh pasar (≥ 10 koin) mengalami kejatuhan likuidasi serentak di 4h**.
+   - Saat seluruh pasar panik bersamaan, elastisitas pantulannya jauh lebih besar (+10% s/d +30%), memberi ruang napas yang sangat lega bagi stop loss dan melompati friksi biaya transaksi.
+
+
+
+---
+
+## [Claude] Uji "pantulan support versi profesional" (sweep & reclaim 1h + filter regime + target resistance)
+
+Analisis Gemini soal *cherry-picking* chart VIRTUAL saya setujui: 5 garis kuning di chart 7 hari yang sedang sideways tidak membuktikan apa-apa. Bagian 4 Gemini ("cara profesional") belum pernah diuji persis dalam bentuk ini di 1h, jadi saya uji. Skrip: `research/support-reclaim.ts`, 653 pair (≥ $5M/hari), aturan dikunci sebelum hasil:
+
+- **Support / resistance:** low terendah / high tertinggi dari 48 candle (2 hari) sebelumnya.
+- **Sweep & reclaim:** low menembus support, lalu dalam ≤ 2 candle ada close kembali di atasnya → beli di close itu.
+- **Stop:** 0,2% di bawah wick terendah sweep (dilewati kalau jarak > 8%).
+- **Target:** resistance (dilewati kalau jaraknya < 1R). Keluar paksa setelah 48 jam.
+- **Regime:** tanpa filter · ranging (ADX14 1h < 25) · tren naik (close > EMA200 harian).
+
+| Regime | IS bruto/trade (t per kejadian) | OOS bruto/trade (t per kejadian) | Bersih futures maker 0,04% (IS │ OOS) | Bersih spot 0,2% (IS │ OOS) |
+|---|---|---|---|---|
+| Tanpa filter | +0,05% (−0,4) | **−0,24% (−5,3)** | +0,01% │ −0,28% | −0,15% │ −0,44% |
+| Ranging (ADX < 25) | +0,06% (0,7) | −0,22% (−4,0) | +0,02% │ −0,26% | −0,14% │ −0,42% |
+| Tren naik (> EMA200 1D) | −0,06% (−2,6) | −0,37% (−4,8) | −0,09% │ −0,41% | −0,25% │ −0,57% |
+
+- Sekitar 98 ribu trade (IS) dan 63 ribu (OOS). Hanya ±20% yang mencapai resistance. Sisanya kena stop atau keluar karena waktu.
+- Per tahun: hanya 2021 dan 2023 yang positif (+0,1 s/d +0,3%). **2024–2026 negatif di semua regime.** Edge, kalau pernah ada, sudah hilang.
+- **Bahkan dengan biaya futures maker 0,04%, hasil OOS tetap −0,26 s/d −0,41% per trade.** Pindah ke futures tidak menyelamatkan strategi ini. Masalahnya bukan biaya, karena hasil sebelum biaya pun sudah negatif.
+- Filter "tren naik EMA200 1D" justru paling buruk. Ini sejalan dengan ronde-ronde sebelumnya: di 1h, filter tren yang masuk akal secara teori tidak menambah edge.
+
+**Kesimpulan:** gagal. Konsisten dengan §4.22–4.24. Pantulan support yang terlihat sempurna di chart adalah hasil memilih jendela waktu sesudah kejadian. Versi sistematisnya tidak punya edge, di spot maupun di futures maker. Cara yang terbukti untuk "membeli pantulan" tetap v1.2: 4h, saat ≥ 10 koin jatuh bersamaan.
+
+---
+
+## [Claude] Uji usulan pemilik: konfirmasi di VAH/VAL ala Fabio Valentini (+ MaxFlow)
+
+Skrip: `research/value-area.ts`. Profil memakai `lib/profile.ts`, sama dengan indikator Volume Profile di chart app (60 baris, VA 70%). Long saja. Dua skala:
+- **swing:** 1h, profil 30 hari, 653 pair;
+- **intraday:** 5m, profil hari sebelumnya, 30 pair likuid.
+
+| Aturan | Skala | Bruto/trade IS │ OOS | n IS / OOS |
+|---|---|---|---|
+| VAH breakout → retest → bertahan, target 2R | intraday | −0,025% │ −0,012% | 27k / 30k |
+| idem + volume breakout ≥ 1,5× | intraday | −0,018% │ −0,004% | 9k / 10k |
+| VAL breakdown gagal → reclaim → retest → POC | intraday | −0,001% │ −0,036% | 14k / 15k |
+| idem + titik hijau MaxFlow | intraday | −0,016% │ −0,118% | 874 / 961 |
+| VAH breakout → retest → bertahan | swing | −0,048% │ −0,031% | 12k / 7k |
+| idem + volume ≥ 1,5× | swing | −0,027% │ +0,014% | 4,5k / 2,5k |
+| VAL breakdown gagal → POC | swing | −0,238% │ −0,313% | 8k / 5,6k |
+| idem + titik hijau MaxFlow | swing | +0,037% │ **+0,411%** (t 0,7) | 192 / 102 |
+
+- **Tidak ada yang lolos.** Di puluhan ribu trade, hasil bruto di level VAH/VAL hampir persis nol. Pasar tidak "menghormati" level value area dari kline secara sistematis.
+- Satu-satunya angka positif (swing VAL + MaxFlow, OOS +0,41%) berasal dari sampel kecil (102 trade, t 0,7). IS-nya +0,04%, dan hasil per tahun berganti tanda (−1,0% s/d +1,9%). Ini noise. Dicatat, tidak dipakai.
+- **Tafsiran:** kalau trader diskresioner seperti Fabio untung di level ini, keunggulannya ada di **membaca order flow secara langsung** (siapa yang agresif, apakah ada absorption), bukan di levelnya. Ini mendukung FL-SDA, yang memakai data collector (likuidasi + depth), sebagai arah yang tepat untuk menguji ide semacam ini.
+
+---
+
+## [Claude] Auction market dua arah + refinement ala Fabio (`research/auction.ts`)
+
+Data: 5m, 30 pair, profil hari UTC sebelumnya. Empat skenario di VAH/VAL (continuation dan gagal → POC, long dan short). Refinement: konteks hari, agresi taker + volume, sesi NY, dan ketiganya sekaligus. Ditambah "80% rule" Dalton. Biaya futures maker 0,04% dan taker 0,1%.
+
+- **Perilaku harga di tepi VA:** 92–93% breakout di-retest dalam 2 jam. Retest bertahan 57–58% dan gagal 42–43%, simetris di VAH dan VAL.
+- **Semua skenario dasar:** bruto −0,02% s/d +0,01% per trade, sekitar 15–30 ribu trade per skenario, IS maupun OOS.
+- **"Fabio" (ketiga refinement sekaligus):** −0,06% s/d +0,08%, hanya 180–335 trade, t ≤ 1,5, tanda berganti per tahun.
+- **80% rule:** hanya 45% yang mencapai sisi seberang (pembanding: hari yang dibuka di dalam VA, 39%).
+- **Kesimpulan:** level VA dari kline 5m tidak membawa edge di kripto, ke arah mana pun. Kemungkinan penyebab:
+  1. Tidak ada sesi atau *opening auction* (24/7).
+  2. Biaya 10–30× lebih mahal dari NQ.
+  3. Konfirmasi Fabio berasal dari footprint/tape, bukan dari candle.
+- **Usul langkah berikutnya:** uji absorption/agresi yang sebenarnya dengan **aggTrades** Binance (setiap transaksi beserta sisi aggressor, tersedia di arsip), pada beberapa pair dan periode terbatas.
+
+---
+
+## [Claude] Footprint sungguhan dari aggTrades (`research/aggtrades.ts`, `research/footprint.ts`)
+
+Data: setiap transaksi Binance beserta sisi aggressor-nya untuk BTC, ETH, SOL, XRP, DOGE, IS 2024-01 → 06 dan OOS 2026-03 → 08, diringkas ke bar 1 menit (delta, transaksi besar ≥ p99, agresi di dasar/puncak bar). Basis sama dengan uji auction sebelumnya. Diuji di 5m dan 1m.
+
+- **Delta candle retest saja tidak memprediksi arah 30 menit berikutnya:** −0,02% s/d +0,04%, tanda berganti antara IS dan OOS.
+- **Initiative (continuation):** tidak lebih baik dari basis, sekitar ±0,03%.
+- **Absorption (reversion):**
+  - 1m VAL → long: +0,12% IS, lalu −0,05% OOS.
+  - 1m VAH → short: +0,06 / +0,04%, tapi n kecil dan t ≤ 1,5.
+- **Satu-satunya tanda konsisten:** 1m "VAH gagal → short ke POC" +0,03 / +0,02% bruto, masih di bawah biaya maker 0,04%.
+
+**Kesimpulan:** bahkan dengan order flow sungguhan, VAH/VAL tidak memberi edge yang bisa ditradingkan di kripto. Data mentah (13 GB) disimpan untuk pengujian timeframe di bawah 1 menit kalau diperlukan.
+
+---
+
+## [Claude] Value area dari timeframe besar, entry di timeframe kecil (`research/auction-htf.ts`)
+
+1h → 15m: profil 7 hari, 30 pair. 4h → 1h: profil 30 hari, 639 pair. Empat skenario dua arah, dengan varian konteks dan agresi.
+
+- **1h → 15m:** semua ≈ 0 (−0,05% s/d +0,04%), tanda berganti IS/OOS.
+- **4h → 1h:**
+  - **Membeli "breakdown gagal" di bawah VAL 30 hari konsisten rugi:** −0,09 / −0,36%.
+  - **Short continuation di bawah VAL** positif: dasar +0,03 / +0,14% (t OOS 2,9); dengan agresi +0,24 / +0,36%. Tapi hasilnya berganti per tahun, dan kemungkinan mencerminkan drift turun altcoin, bukan level VA.
+- **Untuk akun spot**, temuan yang berguna adalah sisi negatifnya: harga yang sudah jatuh di bawah VAL 30 hari cenderung lanjut turun. Ini kandidat **filter veto** untuk v1 (perlu diuji di mesin 4h).
+
+---
+
+## [Claude] Refinement pemilik: TP 1:2, SL di bawah node volume, entry setelah 3 delta searah
+
+`research/auction-refine.ts`, `research/auction-short.ts`. Empat timeframe, empat skenario dua arah, varian ditumpuk satu per satu (A: TP 2R → B: + SL node → C: + 3 delta).
+
+- **1h→15m, 5m, 1m:** tetap ≈ 0 (−0,08% s/d +0,08%), tidak konsisten.
+- **4h→1h, short saat breakdown VAL bertahan:** satu-satunya yang positif di IS dan OOS. Tapi setelah dinilai per R (SL node membuat stop 2–3× lebih lebar), dengan taker 0,1% dan funding:
+  - B: +0,047 / +0,044R;
+  - C: +0,094 / +0,031R.
+  - Portofolio risiko 1%: B rugi (DD −88%); C +34% / +19% per tahun dengan **DD −57%**.
+- **Sisi long:** tetap negatif per R.
+
+**Kesimpulan:** refinement tidak menciptakan edge long. Edge short yang kecil ada, tapi drawdown-nya tidak layak dan butuh futures.

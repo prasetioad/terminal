@@ -539,6 +539,84 @@ Titik hijau MaxFlow (bias 4h) tanpa stochastic. SL 0,2% di bawah low 10 (atau 20
   - FL-SDA, dikunci di `Discussion.md`, diuji setelah ≥ 100 kejadian dari collector;
   - filter veto basis/funding untuk v1/A, usulan, butuh izin.
 
+### 4.31 Pantulan support versi Gemini: sweep & reclaim 1h + filter regime + target resistance (riset lokal)
+
+`npx tsx research/support-reclaim.ts` (`Discussion.md`, chart VIRTUAL 1h). Support/resistance = low/high 48 candle; low menembus support lalu close kembali di atasnya dalam ≤ 2 candle → beli. Stop 0,2% di bawah wick, target resistance (≥ 1R), maksimal 48 jam. Regime: tanpa filter / ADX < 25 / di atas EMA200 1D.
+
+- Bruto IS +0,05 / +0,06 / −0,06% → **OOS −0,24 / −0,22 / −0,37%** (t per kejadian −4 s/d −5). 2024–2026 negatif di semua regime.
+- Futures maker 0,04% pun OOS −0,26 s/d −0,41%. Spot −0,42 s/d −0,57%. ❌
+- Pantulan support yang tampak sempurna di chart adalah hasil memilih jendela setelah kejadian. Versi sistematisnya tidak punya edge.
+
+### 4.32 Value area ala Fabio Valentini: konfirmasi di VAH/VAL (usulan pemilik, riset lokal)
+
+`npx tsx research/value-area.ts`. Profil dari `lib/profile.ts` (sama dengan indikator Volume Profile di chart: 60 baris, VA 70%), dihitung dari bar sebelum tiap hari UTC. Long saja.
+
+- **VAH breakout → retest → bertahan** (target 2R): bruto intraday 5m −0,03 / −0,01%, swing 1h −0,05 / −0,03%. Dengan volume ≥ 1,5×: −0,02 / 0,00% dan −0,03 / +0,01%. ❌
+- **VAL breakdown gagal → reclaim → retest → POC:** intraday 0,00 / −0,04%, swing **−0,24 / −0,31%**. ❌
+- **VAL + titik hijau MaxFlow:** intraday −0,02 / −0,12%. Swing +0,04% (IS) / **+0,41% (OOS)**, tapi hanya 192 / 102 trade, t 0,1 / 0,7, dan berganti tanda dari tahun ke tahun (−1,0% s/d +1,9%). Tidak signifikan. ➖ Catat saja, tidak dipakai.
+- Hasil bruto di level VAH/VAL ≈ 0 (±0,03%) di puluhan ribu trade. Level value area dari kline tidak membawa informasi arah. Keunggulan trader diskresioner di level ini (kalau ada) berasal dari membaca order flow secara langsung, bukan dari levelnya.
+
+### 4.33 Auction market dua arah (long + short) dan refinement ala Fabio (riset lokal)
+
+`npx tsx research/auction.ts`. 5m, 30 pair, profil hari UTC sebelumnya (`lib/profile.ts`). Empat skenario di VAH/VAL: breakout → retest → bertahan (continuation, target 2R) atau gagal (reversion ke POC). Refinement: konteks hari (imbalance/balance), agresi (rasio taker + volume ≥ 1,5×), sesi NY, dan ketiganya sekaligus. Ditambah "80% rule" Dalton. Biaya futures: maker 0,04%, taker 0,1%.
+
+- **Perilaku:** 92–93% breakout di-retest dalam 2 jam. Dari retest itu, 57–58% bertahan dan 42–43% gagal, simetris di VAH dan VAL.
+- **Hasil per trade (bruto):** semua skenario dasar −0,02% s/d +0,01%, baik long maupun short. Refinement satu per satu: −0,05% s/d +0,02%.
+- **Ketiga refinement sekaligus:** −0,06% s/d +0,08%, hanya 180–335 trade, t ≤ 1,5, tanda berganti per tahun. ❌
+- **80% rule:** hanya **45%** yang mencapai sisi seberang VA (bukan 80%). Sebagai pembanding, hari yang dibuka di dalam VA menyentuh kedua sisi 39%. Trade-nya −0,18% s/d +0,06%. ❌
+- **Tafsiran:**
+  - Kripto berjalan 24/7, sehingga tidak ada lelang pembukaan (*opening auction*). Batas hari UTC bersifat arbitrer, berbeda dengan sesi RTH futures indeks tempat teori ini lahir.
+  - Biaya NQ di CME sekitar < 0,01% per round trip, 10–30× lebih murah dari futures kripto, sehingga edge +0,03–0,08% di sana bisa bernilai.
+  - Konfirmasi Fabio memakai footprint/tape real-time, bukan rasio taker per 5 menit.
+
+### 4.34 Footprint sungguhan dari aggTrades: initiative dan absorption di VAH/VAL, 5m dan 1m (riset lokal)
+
+`npx tsx research/aggtrades.ts` (data) · `npx tsx research/footprint.ts`. Aggregated trades Binance (setiap transaksi beserta sisi aggressor) untuk BTC, ETH, SOL, XRP, DOGE. IS 2024-01 → 06, OOS 2026-03 → 08. Diringkas ke bar 1 menit: delta, transaksi besar (≥ p99 hari sebelumnya), jual agresif di dasar / beli agresif di puncak bar. Data mentah disimpan di `research/.cache/aggtrades-raw` (13 GB). Basis sama dengan §4.33.
+
+- **Order flow saja:** pergerakan 30 menit setelah retest, menurut delta candle retest: −0,02% s/d +0,04%, tanda berganti antara IS dan OOS. Delta tidak memprediksi arah. ❌
+- **Continuation + initiative** (delta ≥ 10% searah, transaksi besar searah): 5m −0,04% s/d +0,01%, 1m −0,05% s/d +0,03%. Tidak lebih baik dari basis. ❌
+- **Reversion + absorption:**
+  - 1m VAL → long: +0,12% (IS) lalu **−0,05% (OOS)**. ❌
+  - 1m VAH → short: +0,06 / +0,04%, hanya 96 / 137 trade, t ≤ 1,5. ➖
+  - Di 5m sinyalnya hampir tidak muncul (7–24 trade). Definisi dasar/puncak dihitung per menit, bukan per bar 5m; bisa diperbaiki dari data mentah.
+- **Satu-satunya tanda yang konsisten:** 1m "VAH gagal → short ke POC" (dasar) +0,03% / +0,02% bruto (t 2,2 / 1,5). Ini di bawah biaya futures maker 0,04%. Mungkin berarti di pasar berbiaya sangat rendah (NQ), tapi tidak di kripto. ➖
+- **Kesimpulan:** footprint dari aggTrades tidak menambah edge yang bisa ditradingkan di VAH/VAL, di 5m maupun 1m.
+
+### 4.35 Value area dari timeframe besar, entry di timeframe kecil: 1h → 15m dan 4h → 1h (riset lokal)
+
+`npx tsx research/auction-htf.ts`. Profil 7 hari dari bar 1h → entry 15m (30 pair), dan profil 30 hari dari bar 4h → entry 1h (639 pair, ≥ $5M/hari). Empat skenario dua arah. Varian: konteks / agresi (taker kline + volume) / keduanya.
+
+- **Perilaku:** sama seperti di 5m. 91–92% breakout di-retest; 58–60% bertahan, 40–42% gagal.
+- **1h → 15m:** semua dasar −0,05% s/d +0,04%, tanda berganti IS/OOS. ❌
+- **4h → 1h, sisi long:**
+  - VAH continuation −0,03 / −0,02%.
+  - **VAL gagal → long −0,09 / −0,36%** (t −2,3 / −2,9): membeli breakdown yang "gagal" di bawah VAL 30 hari konsisten rugi. ❌ Bisa jadi bahan veto untuk v1 (belum diuji).
+- **4h → 1h, sisi short:**
+  - **VAL continuation short:** dasar +0,03 / **+0,14%** (t OOS 2,9); dengan agresi +0,24 / +0,36% (t 1,2 / 2,1). Positif di 2022, 2024, 2025; negatif di 2021, 2023, 2026.
+  - Kemungkinan besar ini cerminan drift turun altcoin (semesta termasuk koin yang delist), bukan keunggulan level VA.
+  - Belum memperhitungkan funding, ketersediaan perp, dan uji per pair. IS t < 2. ➖ Kandidat cek lanjutan, hanya untuk akun futures.
+- Dari 32 baris, beberapa angka besar (misalnya VAH continuation + konteks + agresi OOS +0,84%, hanya 91 trade) wajar muncul karena kebetulan dari banyaknya baris yang diuji.
+
+### 4.36 Refinement pemilik: TP 1:2, SL di bawah node volume besar, entry setelah 3 delta searah (riset lokal)
+
+`npx tsx research/auction-refine.ts` · `npx tsx research/auction-short.ts`. Empat timeframe (4h→1h, 1h→15m, 5m dan 1m dari aggTrades), empat skenario dua arah. Varian ditumpuk:
+- **A:** TP 2R;
+- **B:** + SL di balik node volume terbesar (profil 48 bar). Orderbook historis tidak tersedia, jadi node volume dipakai sebagai proksi "big order";
+- **C:** + entry setelah 3 candle berturut-turut dengan delta searah.
+
+Hasil:
+- **1h→15m, 5m, 1m:** semua varian −0,08% s/d +0,08% bruto, tidak konsisten antara IS dan OOS. ❌
+- **4h→1h, long:** VAH continuation B +0,05 / +0,06% bruto, tapi **per R −0,06 / −0,04R** setelah biaya dan funding. VAL gagal → long tetap negatif. ❌
+- **4h→1h, short VAL continuation:** bruto per trade naik tajam di B (+0,17 / +0,38%) dan C (+0,31 / +0,33%). Tapi kenaikan ini **sebagian besar karena SL yang lebih lebar** (median risiko 1,3% → 3,1–3,5%). Per R setelah taker dan funding, hanya di perp yang tersedia:
+  - A −0,04 / −0,02R;
+  - B +0,047 / +0,044R (t 3,3 / 2,9);
+  - C +0,094 / +0,031R (t 4,1 / 1,3).
+- **Portofolio** (risiko 1%, ≤ 10 posisi):
+  - B: CAGR −21% / −47%, DD −88%. Saat crash pasar, slot penuh sehingga trade terbaik terlewat.
+  - C: +34% / +19%, tapi **DD −57%**. 2021 dan 2026 negatif.
+  - ➖ Ada edge kecil di short altcoin yang breakdown, tapi drawdown tidak layak dan butuh akun futures.
+- **Pelajaran metodologi:** membandingkan "% per trade" antar varian dengan SL berbeda menyesatkan. Ukuran yang benar adalah hasil per R (ukuran posisi berbasis risiko) dan simulasi portofolio.
+
 ## 5. Roadmap
 
 Setiap tahap punya hasil yang bisa langsung dipakai dan syarat lulus.
