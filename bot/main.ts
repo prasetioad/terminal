@@ -100,7 +100,8 @@ function schedule() {
 }
 
 async function start() {
-  const risks = cfg.setups.map((id) => (id === "a" ? `A ${(cfg.riskPerTradeA * 100).toFixed(2)}%` : `v1 ${(cfg.riskPerTrade * 100).toFixed(2)}%${cfg.maxRiskPerBar ? ` (≤ ${(cfg.maxRiskPerBar * 100).toFixed(0)}%/bar)` : ""}`));
+  const risks = cfg.setups.map((id) => (id === "a" ? `A ${(cfg.riskPerTradeA * 100).toFixed(2)}%` : `v1 ${(cfg.riskPerTrade * 100).toFixed(2)}%${cfg.maxRiskPerBar ? ` (≤ ${+(cfg.maxRiskPerBar * 100).toFixed(2)}%/bar)` : ""}`));
+  if (cfg.zAddon) risks.push(`Z ${(cfg.riskPerTradeZ * 100).toFixed(2)}%`);
   console.log(`${setupsName(cfg)} bot · mode ${cfg.mode.toUpperCase()} · stoch ${cfg.stoch} · risk ${risks.join(", ")}/trade · db ${cfg.dbPath}`);
   store.log("info", "start", `mode ${cfg.mode}`);
   await notifier.send(`🤖 ${setupsName(cfg)} bot started · <b>${cfg.mode.toUpperCase()}</b>`).catch(() => {});
