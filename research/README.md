@@ -41,6 +41,19 @@ npx tsx research/setup-v1.ts --stoch 5,3,3
 | `auction-htf.ts` | Value area from a higher timeframe, entries on a lower one (1h profile → 15m, 4h profile → 1h), both directions, with context / taker-aggression variants and spot / futures costs. |
 | `auction-refine.ts` | Owner's refinements on four timeframes, stacked: TP 2R · stop past the heaviest volume node · entry after three bars of taker flow the trade's way. Writes the trades to `.cache/auction-refine-trades.json`. |
 | `auction-short.ts` | Robustness of the 4h→1h VAL-breakdown short: per R, perpetual availability, funding, per year, coin concentration, delisted coins, a 1%-risk portfolio. |
+| `weekly.ts` | The owner's method on weekly candles (MaxFlow green dot + stochastic, red-dot exit), with weekly bars since 2017 from the API and from the 4h cache for delisted pairs; open trades marked at the last close. |
+| `audit.ts` | Bias audit of the bot's setups with the bot's engines: 4h bars shifted by 1–3 hours, other timeframes as-is, costs 0.1/0.2/0.3%, breadth / RS / volume sensitivity, per year. |
+| `audit-tf.ts` | The timeframe test made fair: v1.2 with its bias at 6× the chart, Setup A with its windows in days and ATR multiples scaled by √(4h ÷ chart); engine copies checked identical on 4h. |
+| `payoff.ts` | Risk/reward of the bot's setups as traded: win rate, average win/loss, payoff, expectancy in % and R, the best 10%'s share of profit, the longest losing run. |
+| `stop-entry.ts` | Support trades with the entry at the classic trade's stop (buy the stop sweep), against buying the support; limit fills, 1h / 4h / 1D, per R and per year. |
+| `sweep-stats.ts` | Anatomy of support breaks: bounce rate, sweep depth before the bounce (ATR and %), classic-stop hunts, P(bounce | depth), how many reach the resistance. |
+| `usdt-dominance.ts` | USDT dominance (proxy: USDT ÷ BTC+ETH market cap, USDT supply from DefiLlama): same-day link to the universe, whether it leads, and regime filters on the bot's portfolio. |
+| `usdt-maxflow.ts` | MaxFlow+ dots on USDT-dominance proxy candles (4h, 1D; with and without bias): what BTC and the universe do over the next 1–14 days, and the bot gated by them. |
+| `daily-movers.ts` | Picking tomorrow's +5–15% coins at the daily close: base rate and five screens (breakout+volume, top gainers, market-wide capitulation, squeeze, RS leaders), next-day distribution, a 2×ATR trail, and a daily book. |
+| `setup-c.ts` | "Setup C", daily market-wide capitulation: a grid of drop × breadth × exit, day boundaries shifted by 4–20h, and the combined portfolio with Setup A (vs v1.2). |
+| `controls.ts` | Harness controls: a look-ahead rule (must win), random entries with Setup A's and v1.2's exits (must not), and public rules (BTC above its 50-day average, buy and hold, weekly cross-sectional momentum). |
+| `anatomy.ts` | What sets winners apart: features at every Setup A breakout (trend study) and at every ≥ 30% drawdown (reversal study), by in-sample terciles, in- and out-of-sample; veto filters on the bot's portfolio. |
+| `a-entry.ts` | Setup A's entry timing: the breakout close (today) vs a pullback to the broken level within two days vs half and half. |
 | `preload.ts` | Fill the kline cache for one interval (`npx tsx research/preload.ts 1h`, resumable; the 1h cache is ~1.3 GB). |
 | `variants.ts` | Upgrade research for v1.1 (H1–H8: breadth, ranking, sizing, slots, risk cap per bar, exits, BTC regime, stoch-only). Bot-like compounding portfolio marked to market every bar; grid selected on in-sample only. Dataset cached in `research/.cache/variants-dataset.json`. |
 | `setup-v1.ts` | Backtest with point-in-time liquidity (trailing 30-day average daily quote volume at the signal), breadth (pairs signalling on the same bar), in-/out-of-sample split at 2024-07-01, per-year results, listed vs delisted, bootstrap 95% CI and a bot-like portfolio (most liquid first, ≤ 15 open, 1% risk). |

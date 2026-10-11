@@ -617,6 +617,243 @@ Hasil:
   - ➖ Ada edge kecil di short altcoin yang breakdown, tapi drawdown tidak layak dan butuh akun futures.
 - **Pelajaran metodologi:** membandingkan "% per trade" antar varian dengan SL berbeda menyesatkan. Ukuran yang benar adalah hasil per R (ukuran posisi berbasis risiko) dan simulasi portofolio.
 
+### 4.37 Metode pemilik di candle mingguan: titik hijau MaxFlow + stochastic (riset lokal)
+
+`npx tsx research/weekly.ts`. Candle 1W sejak 2017 dari API (pair yang masih listing) dan dari cache 4h untuk pair yang delist. 524 pair, ≥ $1M/hari, biaya 0,2%. Logika v1 disalin dengan warmup 52 minggu. Trade yang masih terbuka dinilai pada harga terakhir.
+
+- **Bias bulanan memblokir hampir semua sinyal** (37 trade di 524 pair). Titik hijau weekly muncul di dasar siklus, saat tren bulanan pasti turun. Contoh BTC: Des 2018, Jun 2022, Des 2025, Feb 2026. Karena itu diuji tanpa bias.
+- **Hasil per trade** (IS │ OOS):
+  - dot + stoch, SL −15%: +6,8% │ **−6,4%**;
+  - SL −30%: +7,4% │ −2,9%;
+  - dot saja, SL −30%: +6,9% │ −8,8%.
+  - Win rate 12–43%; 53–88% kena stop.
+- **Portofolio** (risiko 1%, ≤ 15 posisi): IS +4% / −2% per tahun (DD −23 s/d −40%), OOS −1 s/d −12% (DD −40 s/d −61%). ❌
+- **Per tahun:** hanya 2023 (+36 s/d +49% per trade) dan 2024 untuk SL −30%. 2022 dan 2025 rugi besar. Sinyal menumpuk di minggu-minggu crash pasar (Agt 2024: 54 koin, Jun 2022: 44), sehingga ini praktis "beli dip besar lalu tahan berbulan-bulan" yang sangat bergantung pada rezim pasar.
+- 2017–2020 positif, tapi hanya 7–12 trade dari koin yang bertahan sampai sekarang (survivorship). Tidak bisa dipakai sebagai bukti.
+- **Catatan:** titik hijau weekly BTC menandai dasar siklus. Mungkin berguna sebagai konteks pasar, belum diuji sebagai filter.
+
+### 4.38 Audit bias v1.2 + Setup A: look-ahead, biaya, jam candle, timeframe, parameter (riset lokal)
+
+`npx tsx research/audit.ts` · `npx tsx research/audit-tf.ts`. Memakai engine bot (`lib/setups`) atau salinan yang terbukti identik di 4h. Semua candle dibangun dari cache 1h; 4h+0 mereproduksi baseline (+27,3 / +33,8%).
+
+- **Look-ahead:** ✅ tidak ada. Bias 1D MaxFlow dibangun dari candle yang sudah tutup. Titik dan cross dipakai di candle tempat keduanya diketahui.
+- **Survivorship:** ✅ semesta termasuk pair yang delist.
+- **Biaya:** riset memakai 0,1% pulang-pergi (bot membayar ±0,2%). Pada 0,2%: +26,5 / +32,8% (DD −13,6 / −15,0%). Pada 0,3%: +25,7 / +31,9%. Dampaknya kecil karena trade rata-rata besar. ✅
+- **Jam candle 4h digeser +1/+2/+3 jam** (biaya 0,1%), gabungan / v1.2 / A:
+
+| Mulai candle | Gabungan IS │ OOS | v1.2 IS │ OOS | Setup A IS │ OOS |
+|---|---|---|---|---|
+| 00 UTC (Binance) | +27,3 │ +33,8% | +13,7 │ +15,7% | +13,7 │ +19,2% |
+| +1 jam | +25,3 │ +29,2% | +10,0 │ +9,2% | +14,5 │ +19,8% |
+| +2 jam | +24,0 │ +30,4% | +7,8 │ +10,2% | +15,8 │ +20,8% |
+| +3 jam | +10,8 │ +32,1% | **−3,2** │ +13,1% | +16,6 │ +19,9% |
+
+- **Timeframe lain, diuji adil** (biaya 0,2%): v1.2 dengan bias 6× chart (di 4h = 1D); Setup A dengan jendela dalam hari dan pengali ATR × √(4h ÷ TF). Engine apa adanya di 2h/3h/12h memberi 0 trade v1, karena bias ≤ 2× chart tidak pernah mengizinkan titik hijau.
+
+| TF | v1.2 IS │ OOS | Setup A IS │ OOS |
+|---|---|---|---|
+| 1h | +9,5 │ **−15,2%** | +9,4 │ +13,5% |
+| 2h | +7,7 │ −2,8% | +12,0 │ +17,5% |
+| 3h | −2,5 │ +2,8% | +14,5 │ +23,5% |
+| **4h** | **+13,1 │ +15,0%** | +13,5 │ +19,0% |
+| 6h | −1,5 │ +22,6% | +15,2 │ +24,4% |
+| 8h | −9,8 │ +18,2% | +17,0 │ +13,5% |
+| 12h | −3,9 │ −3,6% | +16,5 │ +20,5% |
+
+- **Parameter** (4h, 0,2%):
+  - breadth 7 / 10 / 13: +24 / +27 / +15% IS, Calmar 1,26 / 1,95 / 0,88;
+  - RS −5 / −10 / −15%: Calmar 1,42 / 1,95 / 1,87;
+  - volume 1,2 / 1,5 / 2×: Calmar 2,63 / 1,95 / 1,59.
+- **Putusan:**
+  - **Setup A kokoh.** Positif di IS dan OOS di semua timeframe 1h–12h dan semua pergeseran jam, CAGR +9 s/d +24%, DD ≤ 15%. Edge trend following yang nyata.
+  - **v1.2 rapuh.** Hanya 4h dengan candle Binance (00 UTC) yang positif di IS dan OOS. Pergeseran jam memotong hasilnya separuh (+3 jam: IS −3%), dan timeframe tetangga bergantian rugi di IS atau OOS. Breadth 10 juga tampak seperti puncak sempit.
+  - Hasil 4h v1.2 kemungkinan **terlalu optimis**. Ekspektasi realistis jauh di bawah +13–15% per tahun, mungkin mendekati nol.
+  - **OOS tidak lagi murni.** Beberapa keputusan (first dot, RS −10%, trailing lonjakan) diambil sambil melihat OOS. Ujian bersih adalah hasil live sejak bot dijalankan.
+
+### 4.39 Risk/reward v1.2 dan Setup A (riset lokal)
+
+`npx tsx research/payoff.ts`. Trade yang lolos filter bot, 4h, biaya 0,2%, R = jarak ke stop awal.
+
+| | Win | Rata-rata menang | Rata-rata kalah | Payoff | Expectancy | 10% trade terbaik | Rugi beruntun terpanjang |
+|---|---|---|---|---|---|---|---|
+| v1.2 IS │ OOS | 60% │ 60% | +9,6% │ +10,8% | −9,4% │ −6,8% | **1,02 │ 1,58** | **0,14R │ 0,25R** | 142% │ 81% dari profit | 27 │ 27 |
+| A IS │ OOS | 60% │ 58% | +30,3% │ +48,5% | −9,3% │ −9,5% | **3,26 │ 5,08** | **0,81R │ 1,34R** | 61% │ 72% | 13 │ 8 |
+
+- **v1.2:** payoff sekitar 1:1 dan sangat bergantung pada win rate 60%. Expectancy hanya 0,14–0,25R. Di IS, 10% trade terbaik menyumbang 142% profit (sisanya rugi bersih). Sejalan dengan kerapuhan di §4.38.
+- **Setup A:** payoff 3–5× dengan win rate tetap sekitar 60% (berkat filter volume dan RS). Expectancy 0,8–1,3R per trade.
+
+### 4.40 Support dengan entry di titik SL klasik (usulan pemilik, riset lokal)
+
+`npx tsx research/stop-entry.ts`. Long, limit order, 1h / 4h / 1D, semua pair ≥ $2M/hari. Support = low N bar (48 / 60 / 30), harus segar (tidak tersentuh dalam N/2 bar).
+- **A klasik:** beli di support, SL support − 0,5×ATR, TP resistance.
+- **B1:** beli di SL-nya A (support − 0,5×ATR), SL entry − 1×ATR, TP resistance.
+- **B2:** seperti B1, TP 2R.
+
+| | A klasik (IS │ OOS, per R bruto) | B1 → resistance | B2 → 2R |
+|---|---|---|---|
+| 1h | −0,16 │ −0,20R (win 8–9%) | −0,03 │ −0,09R | −0,06 │ **−0,04R** |
+| 4h | −0,13 │ −0,30R (win 6–8%) | +0,003 │ −0,31R | −0,08 │ −0,15R |
+| 1D | −0,25 │ −0,34R (win 10–12%) | −0,12 │ −0,18R | −0,09 │ −0,15R |
+
+- **A klasik sangat buruk:** 88–94% trade kena SL. Membeli di support dengan SL tepat di titik invalidasi memang ladang stop hunt.
+- **Entry di titik SL (B) memperbaiki hasil secara besar** (rugi per R berkurang 50–80%, win rate naik dua kali lipat). Fenomena sapuan stop di bawah support memang nyata.
+- **Tapi tetap negatif, bahkan sebelum biaya**, di semua timeframe untuk OOS. Setelah menembus support, cukup sering harga benar-benar lanjut turun, sehingga pantulan dari zona sapuan tidak cukup menutup kerugian. Biaya spot 0,2% membuatnya −0,18 s/d −0,24R. ❌
+
+### 4.41 Anatomi sapuan support: seberapa sering memantul, seberapa dalam (riset lokal)
+
+`npx tsx research/sweep-stats.ts`. Kejadian sama dengan §4.40 (support segar ditembus), 2021 → sekarang, semua pair ≥ $2M/hari. "Memantul" = ada close kembali di atas support dalam N bar.
+
+| | 1h (106 rb) | 4h (22 rb) | 1D (7,4 rb) |
+|---|---|---|---|
+| Memantul | 90% (median di bar yang sama) | 89% | 89% |
+| Kedalaman sebelum memantul: median / 75% / 90% | 0,56 / 1,33 / 2,75 ATR (0,9 / 2,1 / 4,5%) | 0,52 / 1,31 / 2,76 ATR (1,7 / 4,6 / 9,7%) | 0,36 / 0,88 / 1,70 ATR (3,8 / 9,7 / 19%) |
+| Tidak memantul: turun lagi (median) | 8,1 ATR (−11,8%) | 8,0 ATR (−26%) | 3,4 ATR (−37%) |
+| SL klasik (−0,5 ATR) tersentuh | 58% | 56% | 47% |
+| …lalu tetap memantul (stop hunt) | 83% | 81% | 76% |
+| Peluang memantul jika sudah ≥ 1 / 2 / 3 ATR di bawah | 75 / 59 / 45% | 73 / 57 / 43% | 63 / 39 / 22% |
+| Sampai resistance (dari semua tembusan) | 23% | 20% | 14% |
+
+- **Stop hunt nyata:** sekitar separuh tembusan menyentuh SL klasik, dan 76–83% dari itu kembali naik.
+- **Tapi "memantul" ≠ untung.** Kebanyakan hanya wick (close di atas support pada bar yang sama). Hanya 14–23% yang sampai ke resistance.
+- **Yang tidak memantul jatuh sangat dalam** (8 ATR, −12% s/d −37%).
+- **Sapuan berekor tebal:** 10% sapuan yang akhirnya memantul tetap turun 1,7–2,8 ATR dulu. Peluang memantul turun cepat seiring kedalaman.
+- Inilah sebabnya entry di −0,5 ATR dengan SL di −1,5 ATR (§4.40) kena SL sekitar separuh waktu: P(≥ 1,5 ATR | ≥ 0,5 ATR) = 47–54%.
+
+### 4.42 USDT dominance dan setup bot (usulan pemilik, riset lokal)
+
+`npx tsx research/usdt-dominance.ts`. Riwayat total market cap tidak gratis, jadi dipakai proksi **USDT ÷ (market cap BTC + ETH)**. Suplai USDT dari DefiLlama; market cap BTC/ETH = close harian × suplai beredar. Sinyal memakai hari sebelum entry.
+
+- **Hari yang sama:** korelasi perubahan harian proksi vs return rata-rata semesta **−0,85 (IS) / −0,81 (OOS)**. Kuat, tapi sebagian besar mekanis: suplai USDT berubah lambat, sehingga USDT.D adalah kebalikan dari market cap.
+- **Daya prediksi 7 hari:**
+  - IS: proksi di bawah MA50 → semesta +1,5% (vs −1,0% di atas MA50); kuintil perubahan 7 hari berbentuk U, tidak monoton.
+  - **OOS: tidak ada perbedaan** (−1,5% vs −1,2%). ❌ Bukan prediktor yang stabil.
+- **Filter regime di bot** (biaya 0,2%, IS │ OOS):
+  - tanpa filter: +26,1 │ +32,8%, Calmar 1,92 │ 2,20;
+  - **hanya risk-on (proksi < MA50):** +25,9 │ **+37,5%**, DD −13,3 │ −12,8%, Calmar 1,94 │ **2,93**;
+  - proksi turun 7 hari: +13,4 │ +26,2%;
+  - v1.2 saat takut + A saat risk-on: +14,4 │ +17,1%;
+  - suplai USDT naik 30 hari: +15,5 │ +32,6%.
+- **Per setup:**
+  - Setup A hampir tidak pernah memberi sinyal saat proksi di atas MA50 (2–4 per tahun). Breakout 20 hari pada dasarnya sudah risk-on, jadi filter ini nyaris tidak berpengaruh (+13,8 │ +20,2% vs +13,5 │ +19,0%).
+  - v1.2 risk-on: +12,3 │ +18,2% (vs +12,9 │ +15,0%). v1.2 hanya saat takut: ≈ 0.
+- **Putusan:** ➖ Filter risk-on tidak memperbaiki IS, dan perbaikan OOS bisa saja kebetulan. Informasi USDT.D sebagian besar sudah terkandung dalam setup (bias 1D v1, breakout A). Kandidat untuk dipantau, tidak dipasang. Catatan: memakai proksi, bukan USDT.D asli.
+
+### 4.43 MaxFlow di USDT dominance sebagai peringatan pasar (usulan pemilik, riset lokal)
+
+`npx tsx research/usdt-maxflow.ts`. Candle proksi USDT.D (USDT ÷ market cap BTC + ETH) 4h dan 1D. MaxFlow seperti di chart (filter OB/OS), dengan bias biasa (4h → 1D, 1D → 1W) dan tanpa bias.
+
+- **Event study.** Return rata-rata setelah titik, vs rata-rata harian (IS │ OOS):
+  - **Titik hijau di USDT.D (4h, bias 1D), 28 │ 23 kejadian:**
+    - BTC 1 hari −1,1% │ −0,2%; 3 hari −0,4% │ +0,5%; **7–14 hari +1,0 / +3,5% │ +0,3 / +0,5%**;
+    - semesta altcoin 1 hari −1,3% │ −0,9%.
+    - Ada sedikit tekanan **1–3 hari**, tapi bukan puncak tren; setelah seminggu pasar cenderung lanjut.
+  - **Titik merah (4h, bias 1D):** semesta +1,3% (1 hari, IS) tapi −1,5% (OOS). Tidak konsisten.
+  - **1D:** hanya 2–7 kejadian per periode. Hasilnya berganti tanda dan tidak bisa disimpulkan.
+- **Gerbang untuk bot** (biaya 0,2%, IS │ OOS, CAGR):
+  - tanpa gerbang +26,1 │ +32,8%;
+  - **semua varian lebih buruk**: "tidak entry selama titik terakhir hijau" +3 s/d +13% │ +1 s/d +20%; "tidak entry 7 hari setelah titik hijau" +6 s/d +23% │ +21 s/d +30%. ❌
+  - Entry terbaik v1.2 justru sering terjadi saat USDT.D naik (pasar sedang pullback).
+- **Putusan:** sebagai alat diskresioner, titik hijau di USDT.D mungkin menandai pullback pendek (1–3 hari), tapi sampelnya kecil dan lemah di OOS. Sebagai filter bot, merugikan. Tidak dipasang.
+
+### 4.44 Mencari koin yang naik 5–15% esok hari (permintaan pemilik, riset lokal)
+
+`npx tsx research/daily-movers.ts`. Candle harian, semesta ≥ $2M/hari, 2021 → sekarang. Hasil hari berikutnya (close → close), IS │ OOS:
+
+| Skrining | Rata-rata esok hari | P(≥ +10%) | P(≤ −10%) | Bersih 0,2% | Buku harian (CAGR) |
+|---|---|---|---|---|---|
+| Semua koin (tingkat dasar) | +0,09 │ −0,16% | 5,2 │ 4,1% | 4,5 │ 3,8% | −0,11 │ −0,36% | – |
+| Breakout 20 hari + volume ≥ 3× | −0,03 │ −0,40% | 12,7 │ 11,1% | 14,2 │ 12,6% | −0,23 │ −0,60% | −97 │ −100% |
+| Top 5 gainer (≥ +15%) | −0,89 │ −0,59% | 14,4 │ 14,3% | 22,4 │ 21,8% | −1,09 │ −0,79% | −100 │ −99% |
+| **Kapitulasi massal** (−20% dalam 3 hari, ≥ 30% pasar −15%) | **+2,09 │ +2,40%** | 20,5 │ 14,5% | 12,4 │ 4,6% | **+1,89 │ +2,20%** | **+22 │ +9%** (72 │ 44 hari) |
+| Squeeze lalu breakout | −0,10 │ +0,68% | 2,8 │ 6,5% | 4,3 │ 2,7% | −0,30 │ +0,48% | −65 │ −28% |
+| Pemimpin RS (+30% vs BTC, dekat high) | +0,57 │ −0,52% | 13,9 │ 8,7% | 11,6 │ 10,7% | +0,37 │ −0,72% | −90 │ −98% |
+
+- **Untung 5–15% per hari tidak realistis:** 5% per hari dibungakan = ×5,4 juta per tahun.
+- Skrining yang menaikkan peluang naik ≥ 10% (breakout, top gainer, RS) **juga menaikkan peluang turun ≥ 10% sama besarnya**. Volatilitasnya naik, bukan arahnya. Rata-ratanya negatif. ❌
+- **Satu-satunya yang positif adalah kapitulasi massal**: esok hari +2,1 / +2,4%, median +2,4%, konsisten dengan ide v1.2 (breadth). Tapi hanya ±20 hari per tahun, sehingga buku hariannya +22 / +9% per tahun, bukan per hari.
+
+### 4.45 "Setup C": kapitulasi massal harian sebagai pengganti v1.2 (riset lokal)
+
+`npx tsx research/setup-c.ts`. Hari flush = ≥ B% semesta likuid turun ≥ 15% dalam 3 hari; beli koin yang turun ≥ D% di close itu. Stop −20%, risiko 1%, ≤ 15 posisi, ≤ 5% risiko baru per hari. Grid D 15/20/25% × B 20/30/40% × exit 1/3/5/10 hari, trailing 2/3×ATR. Biaya 0,2%.
+
+- **Hanya pegang 1 hari yang positif.** Pegang 3–10 hari atau trailing: rugi (OOS −8 s/d −27% per tahun). Pantulan kapitulasi hanya bertahan sekitar satu hari.
+- **Pilihan IS** (turun 25%, breadth 30%, 1 hari): +12,2% / DD −8,5% (IS), tapi **−0,6% (OOS)**. Semua varian 1 hari di OOS hanya −0,6 s/d +2,9% per tahun.
+- **Batas hari digeser 4–20 jam:** IS +3 s/d +14%, OOS −1 s/d +11%. Sangat bergantung pada jam, sama seperti v1.2.
+- **Portofolio** (IS │ OOS):
+  - A + v1.2 (sekarang): +26,1 │ +32,8%, Calmar 1,92 │ 2,20;
+  - A + C: +27,3 │ +18,2%, Calmar 3,05 │ **0,97**;
+  - A + v1.2 + C: +41,4 │ +34,5%, Calmar 2,99 │ 2,16.
+- **Putusan:** ❌ Setup C tidak lebih kokoh dari v1.2 dan gagal di OOS. Edge per trade dari §4.44 (+2,4% esok hari) tidak bertahan di portofolio yang realistis: entry dibatasi per hari, koin paling likuid dulu, dan kejadiannya menumpuk di sedikit hari. Bot tetap A + v1.2.
+
+### 4.46 Apakah harness riset bias ke dua setup kita? Uji kontrol (riset lokal)
+
+`npx tsx research/controls.ts`. Semua melalui simulator portofolio yang sama (`momentum.ts simulate`) dan biaya 0,2%.
+
+| Kontrol | IS │ OOS (CAGR, DD) | Arti |
+|---|---|---|
+| Setup A / v1.2 / A + v1.2 (referensi) | +13,5 │ +19,0% · +12,9 │ +15,0% · +26,1 │ +32,8% | |
+| **Positif:** aturan "curang" yang melihat besok (beli jika close besok ≥ +2%) | angka astronomis, win 100% | ✅ harness bisa melihat edge |
+| **Negatif:** entry acak + exit Setup A (5 seed) | −1,7 s/d +4,0% │ −2,2 s/d +7,7% | ✅ edge A berasal dari sinyal entry, bukan dari exit atau pasar |
+| **Negatif:** entry acak + exit v1.2 (5 seed) | −9,7 s/d +2,7% │ −14,9 s/d +1,9% | ✅ sama untuk v1.2 |
+| **Publik:** BTC di atas SMA50, else kas | +20,5 │ +23,1%, DD −57 │ −25% | ✅ edge trend publik terlihat (DD lebih kecil dari beli-tahan) |
+| **Publik:** BTC beli-tahan | +23,9 │ +13,7%, DD −76 │ −52% | pembanding |
+| **Publik:** momentum mingguan (10 koin terbaik 30 hari) | −33 │ −89% | sejalan dengan §4.28 dan §4.44: mengejar pemenang di semesta bebas survivorship rugi |
+
+- **Putusan:** tidak ada bias kode yang memihak dua setup kita.
+  - Harness menemukan edge kalau edge itu ada (kontrol positif, trend BTC).
+  - Harness tidak memberi hasil bagus pada entry acak dengan exit yang sama.
+  - Sebagian besar strategi yang gagal dinilai dari rata-rata per trade sebelum biaya, tanpa melewati simulator sama sekali.
+
+### 4.47 Anatomi pemenang: ciri tren besar dan reversal, filter veto, timing entry Setup A (riset lokal)
+
+`npx tsx research/anatomy.ts` · `npx tsx research/a-entry.ts`. 4h, semesta bebas survivorship. Fitur dihitung saat keputusan. Kelompok = tercile IS; sebuah fitur dihitung hanya kalau urutannya sama di IS dan OOS.
+
+**1 · Tren: semua breakout Setup A tanpa filter** (IS 0,35R │ OOS 0,03R per trade). Fitur yang konsisten:
+- **RS 30 hari vs BTC rendah** (< −10,7%): 0,78R │ 0,67R vs tinggi −0,00 │ −0,25R. Filter bot sudah benar.
+- **USDT.D di atas MA50 (takut):** −0,16 │ −0,32R vs risk-on 0,48 │ 0,15R.
+- **Range 20 hari sempit** (< 16%, basis yang rapat): 0,54 │ 0,32R vs lebar 0,28 │ −0,12R.
+- **Funding ≥ 0,01%:** 0,45 │ 0,36R vs di bawahnya 0,31 │ −0,09R.
+- **Basis positif** (≥ +0,04%): 0,53 │ **0,89R** vs negatif 0,20 │ −0,09R.
+- Lonjakan volume tinggi: datar di IS, 0,33 vs −0,22R di OOS.
+- **Tidak konsisten:** ATR%, return 30 hari, OI 7 hari, posisi value area, jarak dari ATH.
+
+**2 · Reversal: koin ≥ 30% di bawah high 30 hari** (P(naik 30% dulu) 29% │ 24%, P(turun 30% dulu) 29% │ 29%). Fitur yang konsisten:
+- **Breadth tinggi** (≥ 69% semesta juga dalam drawdown): turun-dulu 26 │ 21%, 10 hari +3,2 │ +3,7%. Kejatuhan massal pulih lebih baik.
+- **BTC kuat saat koin jatuh** (BTC > MA200 +16%): turun-dulu 28 │ 41%, 30 hari −5,1 │ **−15,8%**. Jatuh sendirian adalah jebakan.
+- **Koin tua** (≥ 526 hari): turun-dulu 15 │ 25% vs koin muda 36 │ 37%.
+- **OI turun ≥ 12% dalam 7 hari** (deleveraging selesai): turun-dulu 21 │ 25% vs OI naik 32 │ 33%.
+- **Jauh di bawah ATH** (< −89%): turun-dulu 20 │ 26% vs dekat ATH 35 │ 33%.
+- **Tidak konsisten:** ATR%, range, return 30 hari, posisi value area (30 hari), USDT.D.
+
+**3 · Veto di bot** (biaya 0,2%, IS │ OOS):
+- tanpa veto: +26,1 │ +32,8%, Calmar 1,92 │ 2,20;
+- di bawah VA 30 hari: 1,86 │ 2,32;
+- funding ≤ −0,05%: 1,90 │ 2,18;
+- basis ≤ −0,6%: 1,95 │ 1,93;
+- naik > 10%/24 jam: 1,92 │ 2,08;
+- keempatnya: +26,6 │ +37,5%, Calmar 1,82 │ 2,32.
+- Veto jarang terpicu di v1.2 (0,1–5,6%). "Naik > 10%" membuang 26% trade Setup A. ➖ **IS tidak membaik, sehingga tidak dipasang.**
+
+**4 · Timing entry Setup A:**
+- Pullback ke level breakout dalam 2 hari: 0,86 │ 1,21R per trade (vs breakout 0,81 │ 1,33R).
+- Tapi 16% breakout tidak pernah pullback, dan itu sering pelari terbaik. Portofolio v1.2 + A pullback: Calmar 1,39 │ 1,94 (vs 1,92 │ 2,20); setengah-setengah: 1,75 │ 1,93. ❌ **Tetap beli saat breakout.**
+
+**Catatan:** fitur di 1 dan 2 dipilih karena konsisten di IS dan OOS, jadi OOS sudah dipakai untuk memilih. Uji filter berdasarkan fitur ini butuh data baru (live) sebagai OOS yang bersih.
+
+**Hipotesis terkunci (2026-10-11).** Bot mencatat ciri ini pada setiap entry (`bot/traits.ts`) tanpa mengubah keputusan. Hasilnya dibandingkan di laporan harian (rata-rata R dengan │ tanpa ciri). Ambang = batas tercile IS di atas, dan tidak boleh diubah.
+
+| Setup | Ciri | Aturan |
+|---|---|---|
+| A | tight base | range 120 bar sebelum breakout < 16% dari harga |
+| A | funding up | rata-rata 3 funding terakhir ≥ 0,01% |
+| A | basis up | close 4h perp ≥ 0,042% di atas spot |
+| v1 | mass drawdown | ≥ 69% pair yang dievaluasi ≥ 30% di bawah close tertinggi 30 hari |
+| v1 | OI flushed | open interest turun ≥ 12,3% dalam 7 hari |
+| v1 | mature coin | ≥ 526 hari riwayat (dihitung paling awal dari 2021-01-01) |
+| v1 | BTC not hot | BTC < 16,5% di atas rata-rata 200 hari |
+
+- **Evaluasi:** setelah ≥ 30 trade tertutup per setup (perkiraan 3–6 bulan). Sebuah ciri lolos kalau trade dengan ciri itu punya rata-rata R lebih tinggi dan selisihnya tidak hilang setelah 60 trade. Baru setelah itu ciri dipertimbangkan sebagai filter atau prioritas, dengan izin pemilik.
+
 ## 5. Roadmap
 
 Setiap tahap punya hasil yang bisa langsung dipakai dan syarat lulus.
@@ -800,3 +1037,4 @@ Exchange (Binance, Bybit, OKX, Coinbase, KuCoin, Deribit)
 - **2026-10-06:** Laporan harian di Telegram (01:00 UTC / 08:00 WIB) + `/report`: tanda hidup bot, equity, posisi, aktivitas 24 jam, peringatan, dan kesehatan collector.
 - **2026-10-06:** Strategi intraday usulan Gemini (VWAP + EMA20 + breakout + volume, 15m) diuji persis sesuai script-nya (§4.25): 0/140 kombinasi positif di IS maupun OOS. Gagal.
 - **2026-10-06:** Perbaikan Gemini (ADX, tren 1h, retest, SL ATR) diuji (§4.26): 0/48 kombinasi positif setelah fee. Gagal.
+- **2026-10-11:** Riset lanjutan §4.37–4.47: candle mingguan, audit bias (Setup A kokoh di semua timeframe; v1.2 rapuh), risk/reward, entry di titik SL, sapuan support, USDT dominance (+ MaxFlow), skrining koin harian, Setup C, uji kontrol harness, anatomi pemenang. Bot tidak diubah kecuali pencatatan ciri entry (`bot/traits.ts`, informasional) untuk menguji hipotesis §4.47 pada data live.
