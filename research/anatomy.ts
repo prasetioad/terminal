@@ -67,7 +67,7 @@ const load4h = (s: string): ResearchBar[] | null => {
 async function main() {
   const symbols = (await archiveSymbols()).filter(inUniverse);
   const btc = load4h("BTCUSDT") as ResearchBar[];
-  const btcIdx = new Map(btc.map((b, i) => [b.time, i]));
+  const btcIdx = new Map<number, number>(btc.map((b, i) => [b.time, i]));
   const btcPre = prefix(btc.map((b) => b.close));
   const btcTrend = (t: number) => {
     const i = btcIdx.get(t);
