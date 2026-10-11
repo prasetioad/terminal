@@ -16,6 +16,7 @@ import { BotEngine, setupsName, type Notifier } from "./engine";
 import { dailyReport } from "./report";
 import { BAR_MS, BinanceMarketData, SETTLE_MS, lastClosedBar } from "./market";
 import { ConsoleNotifier, TelegramNotifier } from "./telegram";
+import { BinanceTraitSource } from "./traits";
 
 try {
   loadEnvFile(process.env.BOT_ENV_FILE ?? "bot/.env");
@@ -31,7 +32,7 @@ const broker: Broker =
     : new BinanceSpotBroker(cfg.mode, new BinanceSpotClient(BINANCE_SPOT[cfg.mode], cfg.binanceApiKey!, cfg.binanceApiSecret!));
 const telegram = cfg.telegramToken && cfg.telegramChatId ? new TelegramNotifier(cfg.telegramToken, cfg.telegramChatId) : null;
 const notifier: Notifier = telegram ?? new ConsoleNotifier();
-const engine = new BotEngine(cfg, store, new BinanceMarketData(), broker, notifier);
+const engine = new BotEngine(cfg, store, new BinanceMarketData(), broker, notifier, Date.now, undefined, new BinanceTraitSource());
 
 let nextRun: number | null = null;
 let timer: NodeJS.Timeout | undefined;

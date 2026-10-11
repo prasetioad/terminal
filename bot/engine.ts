@@ -7,6 +7,7 @@ import type { BotConfig, SetupId } from "./config";
 import type { BotStore, ExitReason, Position } from "./db";
 import { BAR_MS, type MarketData, type PairInfo } from "./market";
 import { RiskGate, setupRules, sizePosition } from "./risk";
+import { breadthDD, range20, tagLine, type TraitSource, type Traits } from "./traits";
 
 /**
  * The bot: once per closed 4h bar it runs its setups (the same engines as the research,
@@ -109,6 +110,8 @@ export class BotEngine {
     private readonly now: () => number = Date.now,
     /** Binance's delist schedule and Monitoring tags (the official schedule needs the live key). */
     private readonly riskList: () => Promise<RiskList> = () => fetchRiskList(cfg.mode === "live" ? cfg.binanceApiKey : null),
+    /** Futures, listing age and BTC's daily trend for the entry traits; without it those stay unknown. */
+    private readonly traitSource: TraitSource | null = null,
   ) {
     this.risk = new RiskGate(cfg, store);
   }
@@ -158,7 +161,7 @@ export class BotEngine {
     report.evaluated = evals.size;
 
     for (const position of held) await this.manage(position, evals.get(position.symbol), report, risks);
-    await this.enter(evals, report, risks);
+    await this.enter(evals, report, risks, barTime);
     await this.markEquity(barTime + BAR_MS, evals);
 
     this.store.set("last_bar", String(barTime));
@@ -262,9 +265,11 @@ export class BotEngine {
    * Fresh entries of every setup on this bar, most liquid first (as the research portfolio),
    * through the liquidity filter, the per-bar risk cap and the risk gates.
    */
-  private async enter(evals: Map<string, Evaluation>, report: CycleReport, risks: RiskList): Promise<void> {
+  private async enter(evals: Map<string, Evaluation>, report: CycleReport, risks: RiskList, barTime: number): Promise<void> {
     const fresh = this.candidates(evals, report).sort((a, b) => b.liquidity - a.liquidity);
     if (!fresh.length) return;
+    // The market's side of the entry traits, once per bar.
+    const market = { breadthDD: breadthDD([...evals.values()].map((ev) => ev.bars)), btcTrend: this.traitSource ? await this.traitSource.btcTrend().catch(() => null) : null };
 
     let { equity, cash } = await this.account(evals);
     const block = this.risk.entryBlock(equity, this.now());
@@ -330,15 +335,27 @@ export class BotEngine {
           await this.broker.sell(symbol, fill.qty, close, clientId(setup, symbol, signalTime, "f")).catch(() => {});
           throw new Error(`stop could not be placed (${(err as Error).message}) — entry reversed`);
         }
-        this.store.insertPosition({ setup, symbol, signalTime, qty: fill.qty, entryPrice: fill.price, entryFee: fill.fee, cost: fill.quote, stopPrice, stopOrderId, openedAt: this.now() });
+        const position = this.store.insertPosition({ setup, symbol, signalTime, qty: fill.qty, entryPrice: fill.price, entryFee: fill.fee, cost: fill.quote, stopPrice, stopOrderId, openedAt: this.now() });
         barRisk[setup] += risk;
         cash -= fill.quote;
-        report.entries.push(`${tag} long @ ${fmt(fill.price)} · ${fill.quote.toFixed(2)} USDT · stop ${fmt(stopPrice)} (−${(stopPct * 100).toFixed(1)}%)`);
+        // Recorded after the position, so a slow or failing lookup never holds up the entry.
+        const traits = await this.traitsOf(ev, barTime, market);
+        this.store.setTraits(position.id, traits);
+        report.entries.push(`${tag} long @ ${fmt(fill.price)} · ${fill.quote.toFixed(2)} USDT · stop ${fmt(stopPrice)} (−${(stopPct * 100).toFixed(1)}%) · ${tagLine(setup, traits)}`);
       } catch (err) {
         report.errors.push(`${tag}: entry failed — ${(err as Error).message}`);
       }
       equity = (await this.account(evals)).equity;
     }
+  }
+
+  /** The entry's traits (bot/traits.ts): informational, never part of a decision. */
+  private async traitsOf(ev: Evaluation, barTime: number, market: Pick<Traits, "breadthDD" | "btcTrend">): Promise<Traits> {
+    const close = ev.bars[ev.bars.length - 1].close;
+    const external = this.traitSource
+      ? await this.traitSource.forPair(ev.pair.symbol, ev.pair.base, barTime, close).catch(() => null)
+      : null;
+    return { range20: range20(ev.bars), funding: external?.funding ?? null, basis: external?.basis ?? null, oi7: external?.oi7 ?? null, ageDays: external?.ageDays ?? null, ...market };
   }
 
   /** Free cash plus open positions marked at their last close. */

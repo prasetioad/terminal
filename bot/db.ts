@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 import type { SetupId } from "./config";
+import type { Traits } from "./traits";
 
 /**
  * The bot's state: positions, an event log and equity snapshots, in SQLite. Schema
@@ -36,6 +37,8 @@ export interface Position {
   closedAt: number | null;
   /** proceeds − cost: the net result in USDT, from actual cash flows (null while open). */
   pnl: number | null;
+  /** What the entry looked like (bot/traits.ts), recorded after the entry; null before v3 or when not recorded. */
+  traits: Traits | null;
 }
 
 export interface EventRow {
@@ -74,6 +77,8 @@ const MIGRATIONS: readonly string[] = [
    CREATE TABLE kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);`,
   // v2: several setups on one account
   `ALTER TABLE positions ADD COLUMN setup TEXT NOT NULL DEFAULT 'v1';`,
+  // v3: entry traits, JSON (bot/traits.ts)
+  `ALTER TABLE positions ADD COLUMN traits TEXT;`,
 ];
 
 const toPosition = (r: Record<string, unknown>): Position => ({
@@ -95,6 +100,7 @@ const toPosition = (r: Record<string, unknown>): Position => ({
   exitReason: (r.exit_reason as ExitReason | null) ?? null,
   closedAt: (r.closed_at as number | null) ?? null,
   pnl: (r.pnl as number | null) ?? null,
+  traits: r.traits ? (JSON.parse(r.traits as string) as Traits) : null,
 });
 
 export class BotStore {
@@ -136,7 +142,7 @@ export class BotStore {
     return this.db.prepare("SELECT 1 FROM positions WHERE symbol = ? AND signal_time = ?").get(symbol, signalTime) !== undefined;
   }
 
-  insertPosition(p: Omit<Position, "id" | "status" | "exitPrice" | "exitFee" | "proceeds" | "exitReason" | "closedAt" | "pnl">): Position {
+  insertPosition(p: Omit<Position, "id" | "status" | "exitPrice" | "exitFee" | "proceeds" | "exitReason" | "closedAt" | "pnl" | "traits">): Position {
     const info = this.db
       .prepare(
         `INSERT INTO positions (setup, symbol, signal_time, status, qty, entry_price, entry_fee, cost, stop_price, stop_order_id, opened_at)
@@ -144,6 +150,10 @@ export class BotStore {
       )
       .run(p.setup, p.symbol, p.signalTime, p.qty, p.entryPrice, p.entryFee, p.cost, p.stopPrice, p.stopOrderId, p.openedAt);
     return toPosition(this.db.prepare("SELECT * FROM positions WHERE id = ?").get(info.lastInsertRowid) as Record<string, unknown>);
+  }
+
+  setTraits(id: number, traits: Traits): void {
+    this.db.prepare("UPDATE positions SET traits = ? WHERE id = ?").run(JSON.stringify(traits), id);
   }
 
   setStopOrder(id: number, stopOrderId: string | null): void {

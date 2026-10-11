@@ -4,13 +4,16 @@
  *
  * Equity and its change, open positions with their result, the last 24 hours (entries,
  * exits, realized P&L, cycles run, errors), Binance's warnings, and — when COLLECTOR_DIR is
- * set — what the market-data collector recorded. Problems are flagged at the top.
+ * set — what the market-data collector recorded. Problems are flagged at the top. Last, the
+ * trait check: closed trades with and without each locked entry trait (bot/traits.ts), in R.
  */
 import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { statusSnapshot } from "./api";
+import type { Position } from "./db";
 import { setupsName, type BotEngine } from "./engine";
+import { TRAIT_TAGS } from "./traits";
 
 const DAY = 86_400_000;
 /** A 4h bot runs 6 cycles a day; fewer than this in 24h means it was down or failing. */
@@ -50,6 +53,25 @@ function collectorStats(dir: string, now: number): CollectorStats | null {
     }
   }
   return found ? stats : null;
+}
+
+/** Closed trades with and without each entry trait, average result in R (R = the distance to the initial stop). */
+export function traitCheck(closed: readonly Position[]): string[] {
+  const tagged = closed.filter((p) => p.traits && p.pnl !== null);
+  if (!tagged.length) return [`Trait check: no closed trade with traits yet`];
+  const rOf = (p: Position) => (p.pnl! / p.cost) / (1 - p.stopPrice / p.entryPrice);
+  const avg = (xs: Position[]) => (xs.length ? `${(xs.reduce((a, p) => a + rOf(p), 0) / xs.length).toFixed(2)}R (${xs.length})` : "– (0)");
+  const lines = [`Trait check (${tagged.length} closed trade(s), avg R with │ without):`];
+  for (const setup of ["a", "v1"] as const) {
+    const of = tagged.filter((p) => p.setup === setup);
+    if (!of.length) continue;
+    const parts = TRAIT_TAGS.filter((t) => t.setup === setup).map((t) => {
+      const known = of.filter((p) => p.traits![t.key] !== null);
+      return `${t.label} ${avg(known.filter((p) => t.test(p.traits![t.key]!)))} │ ${avg(known.filter((p) => !t.test(p.traits![t.key]!)))}`;
+    });
+    lines.push(`  ${setup === "a" ? "A" : "v1"}: ${parts.join(" · ")}`);
+  }
+  return lines;
 }
 
 export async function dailyReport(engine: BotEngine, nextRun: number | null, now = Date.now()): Promise<string> {
@@ -115,6 +137,7 @@ export async function dailyReport(engine: BotEngine, nextRun: number | null, now
     `All time: ${s.closedTrades} closed trade(s)${s.winRate !== null ? ` · win ${(s.winRate * 100).toFixed(0)}% · avg ${pct(s.avgReturn!)}` : ""} · realized ${usd(s.totalPnl)} USDT`,
     `Binance warnings: ${delisting.length ? `delisting ${delisting.join(", ")}` : "no delisting"} · ${risks.monitoring.size} Monitoring`,
     ...(collectorLine ? [collectorLine] : []),
+    ...traitCheck(store.closedPositions(1000)),
     s.nextRun ? `Next cycle ${new Date(s.nextRun).toISOString().slice(0, 16).replace("T", " ")} UTC` : "",
   ]
     .filter((l, i, a) => l !== "" || (i > 0 && a[i - 1] !== ""))

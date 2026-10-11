@@ -83,6 +83,8 @@ npm run research:setup-v1         # backtest tanpa survivorship bias (semua pair
 
 **Laporan harian** (setiap bot ke Telegram-nya sendiri): equity dan perubahan 24 jam, posisi terbuka beserta P&L, aktivitas 24 jam (entry, exit, P&L realisasi, jumlah siklus, error), peringatan Binance, dan (bot Ops) kesehatan collector. Masalah ditandai di baris atas: siklus kurang dari 5 dari 6, ada error, entry di-pause, pair yang dipegang mendapat peringatan Binance, collector berhenti. **Kalau laporan pukul 08:00 WIB tidak datang, ada yang mati.**
 
+**Ciri entry (hipotesis riset, informasional).** Setiap entry dicatat dengan ciri yang menurut riset membedakan pemenang (`docs/ROADMAP.md` §4.47): untuk Setup A *tight base*, *funding up*, *basis up*; untuk v1 *mass drawdown*, *OI flushed*, *mature coin*, *BTC not hot*. Notifikasi entry menampilkannya (✓ ada, ✗ tidak, ? tidak diketahui). Laporan harian membandingkan rata-rata hasil (R) trade tertutup dengan dan tanpa tiap ciri. Ciri tidak memengaruhi keputusan trading. Datanya dari endpoint publik Binance (funding, basis, open interest, umur koin, tren harian BTC), dan kalau gagal diambil, entry tetap berjalan dengan ciri kosong.
+
 ## 4. Binance Testnet
 
 1. Buka https://testnet.binance.vision, login dengan GitHub, lalu **Generate HMAC_SHA256 Key**.

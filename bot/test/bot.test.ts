@@ -12,13 +12,14 @@ import { PaperBroker, type Broker, type Fill, type StopStatus } from "../broker"
 import { LIVE_CONFIRM_PHRASE, loadConfig } from "../config";
 import { BotStore } from "../db";
 import { BotEngine } from "../engine";
-import { dailyReport } from "../report";
+import { dailyReport, traitCheck } from "../report";
 import { EMPTY_RISK, parseDelistTitles, type RiskList } from "../../lib/server/binanceRisk";
 
 const noRisk = async () => EMPTY_RISK;
 import { BAR_MS } from "../market";
 import { ReplayMarketData } from "../replay";
 import { RiskGate, sizePosition } from "../risk";
+import { breadthDD, range20, tagsOf, type TraitSource } from "../traits";
 
 describe("binance primitives", () => {
   it("signs exactly like the Binance API documentation example", () => {
@@ -267,6 +268,25 @@ describe("engine", () => {
     assert.equal(open.length, 1);
     assert.equal(open[0].signalTime, fresh.entryTime);
     assert.ok(Math.abs(open[0].stopPrice / open[0].entryPrice - 0.85) < 1e-12);
+  });
+
+  it("records the entry's traits after the entry, and a failing lookup never blocks it", async () => {
+    const source: TraitSource = { btcTrend: async () => 0.05, forPair: async () => ({ funding: 0.0002, basis: -0.001, oi7: -0.2, ageDays: 900 }) };
+    const store = new BotStore(":memory:");
+    const engine = new BotEngine(cfg, store, market, new PaperBroker(store, 10_000, 0.001, 0), { send: async () => {} }, () => barTime + BAR_MS, noRisk, source);
+    const report = await engine.runCycle(barTime);
+    const [p] = store.openPositions();
+    assert.deepEqual({ ...p.traits, range20: null, breadthDD: null }, { range20: null, funding: 0.0002, basis: -0.001, oi7: -0.2, ageDays: 900, breadthDD: null, btcTrend: 0.05 });
+    assert.ok(p.traits!.range20! > 0 && p.traits!.breadthDD !== null);
+    assert.match(report.entries[0], /OI flushed ✓ · mature coin ✓ · BTC not hot ✓/);
+
+    const failing: TraitSource = { btcTrend: async () => { throw new Error("down"); }, forPair: async () => { throw new Error("down"); } };
+    const store2 = new BotStore(":memory:");
+    const engine2 = new BotEngine(cfg, store2, market, new PaperBroker(store2, 10_000, 0.001, 0), { send: async () => {} }, () => barTime + BAR_MS, noRisk, failing);
+    await engine2.runCycle(barTime);
+    const [q] = store2.openPositions();
+    assert.equal(q.traits?.funding, null);
+    assert.equal(q.traits?.btcTrend, null);
   });
 
   it("on an exchange account, skips a pair whose coins the owner already holds", async () => {
@@ -615,5 +635,36 @@ describe("daily report", () => {
       delete process.env.COLLECTOR_DIR;
       fsm.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("entry traits", () => {
+  const bar = (time: number, close: number, high = close, low = close): Candle => ({ time: time as Candle["time"], open: close, high, low, close, volume: 1, buyVolume: 0.5 });
+  it("tags by the locked thresholds, unknown when the value is missing", () => {
+    const t = { range20: 0.1, funding: 0.0001, basis: null, oi7: -0.2, ageDays: 100, breadthDD: 0.7, btcTrend: 0.2 };
+    assert.deepEqual(tagsOf("a", t).map((x) => x.on), [true, true, null]);
+    assert.deepEqual(tagsOf("v1", t).map((x) => x.on), [true, true, false, false]);
+  });
+  it("measures the base and the market's drawdown from the bars before", () => {
+    const flat = Array.from({ length: 121 }, (_, i) => bar(i, 100, 105, 95));
+    assert.ok(Math.abs(range20(flat)! - 0.1) < 1e-12);
+    assert.equal(range20(flat.slice(1)), null);
+    const fell = [...Array.from({ length: 180 }, (_, i) => bar(i, 100)), bar(180, 69)];
+    const held = [...Array.from({ length: 180 }, (_, i) => bar(i, 100)), bar(180, 90)];
+    assert.equal(breadthDD([fell, held, held.slice(1)]), 0.5);
+  });
+  it("compares closed trades with and without each trait, in R", () => {
+    const store = new BotStore(":memory:");
+    const open = (symbol: string, traits: Parameters<BotStore["setTraits"]>[1], exit: number) => {
+      const p = store.insertPosition({ setup: "a", symbol, signalTime: 1, qty: 1, entryPrice: 100, entryFee: 0, cost: 100, stopPrice: 80, stopOrderId: null, openedAt: 1 });
+      store.setTraits(p.id, traits);
+      store.closePosition(p.id, { price: exit, fee: 0, proceeds: exit, reason: "trail", time: 2 });
+    };
+    const base = { funding: null, basis: null, oi7: null, ageDays: null, breadthDD: null, btcTrend: null };
+    open("AUSDT", { ...base, range20: 0.1 }, 140); // +2R
+    open("BUSDT", { ...base, range20: 0.3 }, 90); // −0.5R
+    const text = traitCheck(store.closedPositions()).join("\n");
+    assert.match(text, /tight base 2\.00R \(1\) │ -0\.50R \(1\)/);
+    assert.match(text, /funding up – \(0\) │ – \(0\)/);
   });
 });
