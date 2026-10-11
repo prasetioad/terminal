@@ -854,6 +854,126 @@ Hasil:
 
 - **Evaluasi:** setelah ≥ 30 trade tertutup per setup (perkiraan 3–6 bulan). Sebuah ciri lolos kalau trade dengan ciri itu punya rata-rata R lebih tinggi dan selisihnya tidak hilang setelah 60 trade. Baru setelah itu ciri dipertimbangkan sebagai filter atau prioritas, dengan izin pemilik.
 
+### 4.48 Seberapa dalam entry v1.2 turun dulu, dan apakah titik terendahnya mentok di support (riset lokal)
+
+`npx tsx research/mae-support.ts`. 1.840 trade v1.2 tertutup (titik hijau pertama, breadth ≥ 10), 4h, 2021 → sekarang. Support = pivot low (lebih rendah dari 12 candle di tiap sisi) dalam 100 hari sebelum entry. Kontrol = kedalaman (MAE) trade lain yang diterapkan pada chart yang sama.
+
+- **Kedalaman setelah entry:** median −5,3%. 66% turun ≥ 3%, 52% ≥ 5%, 35% ≥ 8%, 27% ≥ 10%, 15% kena stop (−15%).
+  - Pemenang: median −2,8%, 90% tidak lebih dalam dari −7,9%.
+  - Kalah: median −12,2%.
+- **Hasil menurut kedalaman** (IS │ OOS):
+
+| Turun | Porsi | R | Win |
+|---|---|---|---|
+| 0 s/d −3% | 34% | 0,65 │ 0,67R | 94% │ 94% |
+| −3 s/d −5% | 14% | 0,40 │ 0,37R | 81% │ 78% |
+| −5 s/d −8% | 17% | 0,31 │ 0,47R | 76% │ 64% |
+| −8 s/d −10% | 8% | 0,17 │ 0,07R | 40% │ 31% |
+| −10 s/d −15% (seperti SUI, −11%) | 12% | −0,08 │ −0,06R | 25% │ 22% |
+| stop | 15% | −1,01R | 0% |
+
+- **Support 100 hari tidak menahan harga lebih dari kebetulan:**
+  - Support terdekat rata-rata 3,8% di bawah entry.
+  - Titik terendah "menyentuh dan bertahan" di support: 13% (kontrol 14%).
+  - "Dalam ±1% dari pivot low mana pun": 34% (kontrol 33%).
+  - Histogram posisi titik terendah relatif support hampir sama dengan kontrol.
+  - Trade yang "bertahan di support" memang hasilnya bagus (0,5R), tapi itu karena dangkal, bukan karena supportnya. ❌
+- **100 candle terakhir (≈ 17 hari, maksud pemilik)**, nyata │ kontrol:
+
+| Support terdekat di bawah entry | Tidak sampai | Berhenti di dalamnya (±1%) | Jebol | Di dalam salah satu level |
+|---|---|---|---|---|
+| Pivot low 6 candle (median 4,3% di bawah) | 40 │ 39% | 14 │ 14% | 46 │ 48% | 22 │ 22% |
+| Pivot low 12 candle (median 8,2% di bawah) | 57 │ 57% | 10 │ 10% | 33 │ 34% | 13 │ 12% |
+| Zona demand (asal rally ≥ 8% dalam 6 candle; median 2,5% di bawah) | 25 │ 25% | 45 │ 43% | 30 │ 33% | 55 │ 56% |
+
+  Selisih dengan kontrol 0–3 poin persen: support dan zona demand 100 candle juga tidak menahan harga lebih dari kebetulan. ❌
+- **Catatan:** trade yang sudah turun ≥ 8% kebanyakan berakhir rugi kecil. Tapi stop −8% tetap merusak hasil (§4.12), karena 10% pemenang juga sempat turun sedalam itu.
+
+### 4.49 Entry v1.2 di area balance / demand sebelumnya, bukan di titik hijau (usulan pemilik, riset lokal)
+
+`npx tsx research/demand-entry.ts`. Sinyal v1.2 sama dengan bot. Limit buy di atas zona terdekat 2–10% di bawah close, aktif sampai exit (titik merah). Stop −15% dari harga isi. Tidak terisi = tidak ada trade.
+- **Zona balance:** ≥ 12 candle dalam rentang ≤ 6%, lalu breakout ke atas.
+- **Zona demand:** asal rally ≥ 8% dalam 6 candle.
+- Keduanya diambil dari 120 candle sebelum sinyal.
+
+- **Kelengkapan:**
+  - Dari 2.182 sinyal, hanya 412 yang punya zona balance di jarak itu, dan 198 yang terisi.
+  - Zona demand ada di 1.406 sinyal, dan 787 yang terisi.
+- **Per trade** (IS │ OOS):
+  - sekarang (close): 0,14 │ 0,25R, win 60 │ 60%;
+  - zona balance: −0,15 │ 0,11R;
+  - zona demand: 0,12 │ 0,39R, win 51 │ 68%.
+- **Portofolio dengan Setup A** (Calmar IS │ OOS):
+  - sekarang: 1,92 │ 2,20;
+  - zona balance: 0,67 │ 2,12;
+  - zona demand: 1,57 │ 1,96 (CAGR +27,1 │ +38,4%, tapi DD −17,3 │ −19,6%);
+  - setengah-setengah: 1,84 │ 2,14 (balance), 1,53 │ 2,08 (demand). ❌
+- Limit di zona demand menaikkan return OOS, tapi juga drawdown. Yang terisi adalah trade yang sudah turun dalam, dan itu menumpuk di saat crash. IS per trade juga tidak lebih baik. Tetap entry di close titik hijau.
+
+### 4.50 Zona demand sebagai strategi tambahan "Z" di samping entry titik hijau (usulan pemilik, riset lokal)
+
+`npx tsx research/demand-entry.ts` (bagian Z).
+- Entry titik hijau v1.2 tetap seperti sekarang. Z adalah posisi kedua di pair yang sama: limit di atas zona terdekat 2–10% di bawah close, aktif sampai exit titik merah, risiko 0,5%.
+- SL Z: stop entry pertama (−15% dari close titik hijau) atau invalidasi zona (1% di bawah dasarnya; dilewati di luar 1–15%).
+- Minimal 12 candle untuk zona balance di §4.49 adalah pilihan awal yang arbitrer; di sini diuji 6, 8, dan 12.
+
+| Z | Per trade IS │ OOS | Median SL | v1.2 + A + Z: Calmar IS │ OOS (CAGR, DD IS) |
+|---|---|---|---|
+| (referensi: v1.2 + A) | | | 1,92 │ 2,20 (+26,1%, −13,6%) |
+| balance ≥ 6 · SL pertama / invalidasi | −0,14 / −0,12R │ +0,43 / +0,53R | −11,5 / −6,2% | 1,26 / 1,22 │ 2,25 / 2,24 |
+| balance ≥ 8 | −0,15 / −0,16R │ +0,32 / +0,40R | −11,3 / −6,3% | 1,35 / 1,38 │ 2,04 / 2,08 |
+| balance ≥ 12 | −0,22 / −0,27R │ +0,14 / +0,20R | −11,3 / −6,3% | 1,51 / 1,49 │ 2,08 / 1,94 |
+| **demand · SL pertama** | **+0,14R │ +0,53R** | −12,1% | 1,52 │ 2,34 (+30,1%, −19,8%) |
+| **demand · invalidasi** | **+0,28R │ +0,61R** | −5,2% | 1,49 │ 2,31 (+30,2%, −20,2%) |
+| demand · invalidasi, risiko dibagi v1 0,5% + Z 0,5% | | | 1,73 │ 2,39 (+29,2%, −16,9%) |
+| demand · invalidasi, v1 0,75% + Z 0,25% | | | 1,83 │ **2,41** (+29,0%, −15,9%) |
+
+- **Zona balance gagal** untuk 6, 8, maupun 12 candle: negatif di IS, positif di OOS.
+- **Zona demand sebagai tambahan positif di kedua periode**, dan per R lebih tinggi dari entry titik hijau (0,28 │ 0,61R vs 0,14 │ 0,25R).
+- Tapi Z menumpuk posisi di koin yang sama saat pasar jatuh, sehingga drawdown IS naik.
+- Dengan total risiko per koin tetap 1% (0,75% + 0,25%), CAGR naik (+29 │ +38% vs +26 │ +33%) dan Calmar OOS lebih baik (2,41 vs 2,20), tapi Calmar IS sedikit lebih buruk (1,83 vs 1,92).
+- ➖ **Kandidat, belum lolos.** IS tidak membaik setelah risiko dihitung, dan definisi zona demand (rally ≥ 8% dalam 6 candle, jarak 2–10%) belum diuji ketahanannya.
+
+### 4.51 Z: uji ketahanan, SL 0,5% di bawah zona, dan Z di koin lain (usulan pemilik, riset lokal)
+
+`npx tsx research/demand-z.ts`. Grid 54 sel: rally 6/8/10% × dalam 4/6/8 candle × jarak zona 1–8 / 2–10 / 3–12% di bawah close × SL 0,5% / 1% di bawah dasar zona. Dua bentuk:
+- **add-on:** Z di koin yang sama dengan entry titik hijau, risiko koin dibagi 0,75% + 0,25%;
+- **koin lain:** Z hanya di koin yang tidak diambil entry titik hijau, v1.2 1% + Z 0,5%.
+
+Pembanding: v1.2 1% + A, Calmar 1,92 │ 2,20.
+
+- **Per trade: positif di IS dan OOS di 54 dari 54 sel** (IS +0,09 s/d +0,53R, OOS +0,29 s/d +0,94R), di atas entry titik hijau (0,14 │ 0,25R). Ini dataran, bukan puncak. ✅ Edge per trade nyata.
+- **Portofolio:**
+  - **add-on** lebih baik dari sekarang di kedua periode di **7 dari 54 sel**. Enam di antaranya di wilayah yang sama: **rally ≥ 8% dalam 4 candle**, semua jarak, kedua SL. Contoh: 2–10%, SL 0,5% → Calmar 2,18 │ 2,39; 1–8%, SL 1% → 2,03 │ 2,55.
+  - **Koin lain:** 0 dari 54. Lebih banyak koin terbuka saat crash, sehingga DD naik. ❌
+- **SL 0,5% vs 1% di bawah dasar zona:** hampir sama (0,5% sedikit lebih baik per R di IS).
+- **Biaya dan fill konservatif** (rally 8% / 4 candle, 2–10%, SL 0,5%). Per trade Z IS │ OOS, Calmar sekarang → dengan Z:
+  - sentuh, 0,2%: 0,49 │ 0,73R, Calmar 1,92 │ 2,20 → 2,18 │ 2,39;
+  - limit harus tembus 0,2%, biaya 0,2%: 0,30 │ 0,60R → 2,07 │ 2,41;
+  - sentuh, biaya 0,3%: 0,47 │ 0,70R, 1,84 │ 2,09 → 2,07 │ 2,25;
+  - **tembus 0,2% + biaya 0,3%: 0,28 │ 0,57R, 1,84 │ 2,09 → 1,96 │ 2,26.** Keunggulan bertahan.
+- **Putusan:** ➖ **Kandidat kuat untuk uji maju.** Edge per trade kokoh. Manfaat di portofolio terbatas pada bentuk add-on dengan risiko dibagi, di wilayah rally ≥ 8% dalam 4 candle. Wilayah ini dipilih setelah melihat grid (54 sel, termasuk OOS), sehingga perlu data baru sebelum dipasang di bot live.
+
+### 4.52 Z: letak SL invalidasi dan batas risiko per candle (usulan pemilik, riset lokal)
+
+`npx tsx research/demand-z-stops.ts`. Kandidat Z (rally ≥ 8% dalam 4 candle, zona 2–10% di bawah close, add-on 0,75% + 0,25%). Pembanding v1.2 1% + A: +26,1% / −13,6% / Calmar 1,92 │ +32,8% / −15,0% / 2,20.
+
+| SL Z | Per trade IS │ OOS | Win | Median SL | Portofolio: Calmar IS │ OOS |
+|---|---|---|---|---|
+| **dasar zona − 0,5%** | **0,49 │ 0,73R** | 39 │ 50% | −4,9% | **2,18 │ 2,39** |
+| dasar zona − 0,5×ATR | 0,36 │ 0,66R | 45 │ 55% | −6,5% | 2,00 │ 2,25 |
+| dasar zona − 1×ATR | 0,23 │ 0,63R | 48 │ 59% | −8,5% | 1,89 │ 2,12 |
+| tengah zona | 0,73 │ 1,11R | 28 │ 36% | −2,6% | 2,17 │ 2,22 |
+| swing low sebelum rally − 0,5% | 0,17 │ 0,54R | 46 │ 56% | −8,7% | 1,77 │ 2,16 |
+
+- SL yang lebih dalam menaikkan win rate, tapi menurunkan hasil per R dan portofolio. Tengah zona memberi R per trade tertinggi, tapi win rate hanya 28–36% dan OOS portofolio lebih rendah. **Dasar zona − 0,5% tetap terbaik.**
+- **Batas risiko baru per candle** (v1 5% → 7,5% / 10%), Calmar IS │ OOS:
+  - tanpa Z: 1,92 │ 2,20 → 1,30 │ 2,06 → 1,31 │ 1,64;
+  - dengan Z: 2,18 │ 2,39 → 1,70 │ 2,13 → 1,52 │ 1,97.
+  - Menaikkan batas menambah entry saat crash, dan drawdown naik. **Tetap 5%.** ❌
+- **Status (2026-10-11):** Z berjalan di **bot paper** sebagai uji maju (`Z_ADDON=1`, v1 0,75% + Z 0,25%, `MAX_RISK_PER_BAR=0.0375`). Bot live tidak berubah. Replay 365 hari × 25 pair: Z 13/13 trade identik dengan aturan riset. Dievaluasi setelah ≥ 30 trade Z tertutup, dengan membandingkan hasil per R dan kurva paper vs bot live.
+- **Batas rugi harian bot (−5%) tidak ada di portofolio riset**, sehingga semua backtest berasumsi tanpa batas harian. Menaikkannya tidak mengubah backtest. Efeknya di bot hanya bisa diukur kalau simulator diberi batas harian.
+
 ## 5. Roadmap
 
 Setiap tahap punya hasil yang bisa langsung dipakai dan syarat lulus.
@@ -1038,3 +1158,4 @@ Exchange (Binance, Bybit, OKX, Coinbase, KuCoin, Deribit)
 - **2026-10-06:** Strategi intraday usulan Gemini (VWAP + EMA20 + breakout + volume, 15m) diuji persis sesuai script-nya (§4.25): 0/140 kombinasi positif di IS maupun OOS. Gagal.
 - **2026-10-06:** Perbaikan Gemini (ADX, tren 1h, retest, SL ATR) diuji (§4.26): 0/48 kombinasi positif setelah fee. Gagal.
 - **2026-10-11:** Riset lanjutan §4.37–4.47: candle mingguan, audit bias (Setup A kokoh di semua timeframe; v1.2 rapuh), risk/reward, entry di titik SL, sapuan support, USDT dominance (+ MaxFlow), skrining koin harian, Setup C, uji kontrol harness, anatomi pemenang. Bot tidak diubah kecuali pencatatan ciri entry (`bot/traits.ts`, informasional) untuk menguji hipotesis §4.47 pada data live.
+- **2026-10-11:** Setup Z (§4.50–4.52) diimplementasikan (`lib/setups/setupZ.ts`, bot `Z_ADDON`, paper saja) dan dijalankan di bot paper sebagai uji maju. 50 tes; replay Z 13/13 identik dengan riset.

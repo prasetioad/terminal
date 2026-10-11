@@ -1,7 +1,10 @@
 import { SETUP_V1, type StochPreset } from "../lib/setups/setupV1";
 
-/** Strategies the bot can run side by side on one account: Setup v1 (capitulation) and Setup A (breakout). */
-export type SetupId = "v1" | "a";
+/**
+ * What opened a position: Setup v1 (capitulation), Setup A (breakout), or Setup Z — the demand-zone
+ * add-on to a v1 entry (not a setup of its own: switched on with Z_ADDON next to v1).
+ */
+export type SetupId = "v1" | "a" | "z";
 
 /**
  * Bot configuration, from the environment (see bot/.env.example).
@@ -36,6 +39,10 @@ export interface BotConfig {
   maxRsA: number | null;
   /** Setup A: tighten the chandelier to 4×ATR after a tall up-bar (≥ 3×ATR) in profit (§4.16). */
   spikeTightenA: boolean;
+  /** Setup Z: a demand-zone limit next to every v1 entry (§4.50–4.52). Paper only, for the forward test. */
+  zAddon: boolean;
+  /** Setup Z: fraction of equity lost at its stop (under the zone). */
+  riskPerTradeZ: number;
   /** Cap on a single position, as a fraction of equity. */
   maxPositionFraction: number;
   /** Setup v1: open positions at most. */
@@ -110,6 +117,8 @@ export function loadConfig(env: Env = process.env): BotConfig {
     maxOpenPositionsA: num(env, "MAX_OPEN_POSITIONS_A", 15, 1, 50),
     spikeTightenA: bool(env, "A_SPIKE_TIGHTEN", false),
     maxRsA: env.A_MAX_RS === undefined || env.A_MAX_RS.trim() === "" ? null : num(env, "A_MAX_RS", 0, -1, 1),
+    zAddon: bool(env, "Z_ADDON", false),
+    riskPerTradeZ: num(env, "RISK_PER_TRADE_Z", 0.0025, 0.0005, 0.05),
     maxPositionFraction: num(env, "MAX_POSITION_FRACTION", 0.1, 0.01, 0.5),
     maxOpenPositions: num(env, "MAX_OPEN_POSITIONS", 15, 1, 50),
     minBreadth: num(env, "MIN_BREADTH", SETUP_V1.minBreadth, 1, 500),
@@ -127,6 +136,9 @@ export function loadConfig(env: Env = process.env): BotConfig {
     apiToken: str(env, "API_TOKEN"),
     dbPath: env.DB_PATH ?? "bot/data/bot.sqlite",
   };
+  // Z rests limit orders the paper broker fills from the bars; on an exchange it is not built yet.
+  if (config.zAddon && config.mode !== "paper") throw new Error("Z_ADDON runs in paper mode only (forward test)");
+  if (config.zAddon && !config.setups.includes("v1")) throw new Error("Z_ADDON needs Setup v1 in SETUPS (Z adds to v1 entries)");
   if (config.mode !== "paper" && (!config.binanceApiKey || !config.binanceApiSecret)) {
     throw new Error(`MODE=${config.mode} needs BINANCE_API_KEY and BINANCE_API_SECRET`);
   }

@@ -102,7 +102,8 @@ function Dashboard({ status: s, open, trades, onToggle }: { status: StatusSnapsh
           {s.config.firstDotOnly ? " · first dot only" : ""}
           {s.setups?.includes("a") && s.config.riskPerTradeA !== undefined ? ` · A: risk ${(s.config.riskPerTradeA * 100).toFixed(2)}% · max ${s.config.maxOpenPositionsA}` : ""}
           {s.setups?.includes("a") && s.config.maxRsA != null ? ` · RS < ${(s.config.maxRsA * 100).toFixed(0)}%` : ""}
-          {s.setups?.includes("a") && s.config.spikeTightenA ? " · spike trail 4×ATR" : ""} · 30d liquidity ≥ $
+          {s.setups?.includes("a") && s.config.spikeTightenA ? " · spike trail 4×ATR" : ""}
+          {s.config.zAddon && s.config.riskPerTradeZ !== undefined ? ` · Z: risk ${(s.config.riskPerTradeZ * 100).toFixed(2)}% (demand-zone add-on)` : ""} · 30d liquidity ≥ $
           {(s.config.minLiquidity30d / 1e6).toFixed(1)}M
         </span>
         <button
@@ -150,7 +151,7 @@ function Dashboard({ status: s, open, trades, onToggle }: { status: StatusSnapsh
             {open.map((p) => (
               <tr key={p.id} className="border-b border-[#1E2631]/60">
                 <td className="px-3 py-1.5 text-slate-100">{p.symbol.replace(/USDT$/, "")}</td>
-                <td className="px-2 py-1.5 text-slate-400">{p.setup === "a" ? "A" : "v1"}</td>
+                <td className="px-2 py-1.5 text-slate-400">{p.setup === "a" ? "A" : p.setup === "z" ? "Z" : "v1"}</td>
                 <td className="px-2 py-1.5 text-slate-400">{time(p.openedAt)}</td>
                 <td className="px-2 py-1.5 text-right">{price(p.entryPrice)}</td>
                 <td className="px-2 py-1.5 text-right text-[#FF2D55]/80">{price(p.stopPrice)}</td>
@@ -170,7 +171,7 @@ function Dashboard({ status: s, open, trades, onToggle }: { status: StatusSnapsh
             {trades.slice(0, 50).map((p) => (
               <tr key={p.id} className="border-b border-[#1E2631]/60">
                 <td className="px-3 py-1.5 text-slate-100">{p.symbol.replace(/USDT$/, "")}</td>
-                <td className="px-2 py-1.5 text-slate-400">{p.setup === "a" ? "A" : "v1"}</td>
+                <td className="px-2 py-1.5 text-slate-400">{p.setup === "a" ? "A" : p.setup === "z" ? "Z" : "v1"}</td>
                 <td className="px-2 py-1.5 text-slate-400">{time(p.closedAt!)}</td>
                 <td className="px-2 py-1.5 text-right">{price(p.exitPrice!)}</td>
                 <td className="px-2 py-1.5 text-right text-slate-400">{p.exitReason}</td>

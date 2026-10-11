@@ -12,7 +12,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { statusSnapshot } from "./api";
 import type { Position } from "./db";
-import { setupsName, type BotEngine } from "./engine";
+import { SETUP_LABEL, setupsName, type BotEngine } from "./engine";
 import { TRAIT_TAGS } from "./traits";
 
 const DAY = 86_400_000;
@@ -69,7 +69,7 @@ export function traitCheck(closed: readonly Position[]): string[] {
       const known = of.filter((p) => p.traits![t.key] !== null);
       return `${t.label} ${avg(known.filter((p) => t.test(p.traits![t.key]!)))} │ ${avg(known.filter((p) => !t.test(p.traits![t.key]!)))}`;
     });
-    lines.push(`  ${setup === "a" ? "A" : "v1"}: ${parts.join(" · ")}`);
+    lines.push(`  ${SETUP_LABEL[setup]}: ${parts.join(" · ")}`);
   }
   return lines;
 }
@@ -102,7 +102,7 @@ export async function dailyReport(engine: BotEngine, nextRun: number | null, now
   const open = await engine.openMarked();
   const openLines = open.map(({ position: p, price }) => {
     const r = price / p.entryPrice - 1;
-    return `  · [${p.setup === "a" ? "A" : "v1"}] ${p.symbol} ${pct(r)} (${usd(p.qty * price - p.cost)} USDT) · stop ${p.stopPrice.toPrecision(5)}`;
+    return `  · [${SETUP_LABEL[p.setup]}] ${p.symbol} ${pct(r)} (${usd(p.qty * price - p.cost)} USDT) · stop ${p.stopPrice.toPrecision(5)}`;
   });
 
   // Binance's warnings.

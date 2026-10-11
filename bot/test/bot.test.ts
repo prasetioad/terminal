@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { runSetupA } from "../../lib/setups/setupA";
 import { runSetupV1 } from "../../lib/setups/setupV1";
+import { zoneOrder } from "../../lib/setups/setupZ";
 import type { Candle } from "../../lib/types";
 import { BinanceApiError, BinanceSpotBroker, BinanceSpotClient, floorToStep, sign } from "../binance";
 import { PaperBroker, type Broker, type Fill, type StopStatus } from "../broker";
@@ -666,5 +667,70 @@ describe("entry traits", () => {
     const text = traitCheck(store.closedPositions()).join("\n");
     assert.match(text, /tight base 2\.00R \(1\) │ -0\.50R \(1\)/);
     assert.match(text, /funding up – \(0\) │ – \(0\)/);
+  });
+});
+
+describe("setup Z (demand-zone add-on, paper)", () => {
+  const bar = (i: number, close: number, open = close): Candle => ({ time: (i * 14_400) as Candle["time"], open, high: Math.max(open, close) + 1, low: Math.min(open, close) - 1, close, volume: 1, buyVolume: 0.5 });
+  it("picks the nearest zone 2–10% under the close, its stop 0.5% under the zone's low", () => {
+    const c: Candle[] = [];
+    for (let i = 0; i < 200; i++) {
+      const close = i < 151 ? 100 : i <= 154 ? 100 + 2 * (i - 150) : 105; // a +8% rally from bar 150 within 4 bars
+      c.push(bar(i, close));
+    }
+    assert.deepEqual(zoneOrder(c, 199), { level: 100, stop: 99 * 0.995 });
+    // the zone is 4.8% under 105: none when the close is barely above it, or far above it
+    assert.equal(zoneOrder([...c.slice(0, 199), bar(199, 101)], 199), null);
+    assert.equal(zoneOrder([...c.slice(0, 199), bar(199, 120)], 199), null);
+  });
+  it("runs in paper mode only, next to Setup v1", () => {
+    assert.equal(loadConfig({ Z_ADDON: "1" }).zAddon, true);
+    assert.throws(() => loadConfig({ Z_ADDON: "1", MODE: "testnet", BINANCE_API_KEY: "k", BINANCE_API_SECRET: "s" }), /paper mode only/);
+    assert.throws(() => loadConfig({ Z_ADDON: "1", SETUPS: "a" }), /needs Setup v1/);
+  });
+
+  const bars = syntheticSeries(1500, 7);
+  const v1 = runSetupV1(bars, { stoch: "either", intervalMs: BAR_MS }).trades.find((t) => t.exitIndex! - t.entryIndex >= 4)!;
+  const at = (i: number) => bars[i].time * 1000;
+  const cfgZ = { ...loadConfig({ Z_ADDON: "1" }), minLiquidity30d: 0, minBreadth: 1 };
+  const run = async (level: (s: number) => { level: number; stop: number } | null) => {
+    const market = new ReplayMarketData(new Map([["TESTUSDT", bars]]));
+    const store = new BotStore(":memory:");
+    let clock = 0;
+    const engine = new BotEngine(cfgZ, store, market, new PaperBroker(store, 10_000, 0.001, 0), { send: async () => {} }, () => clock, noRisk);
+    for (let i = v1.entryIndex; i <= v1.exitIndex!; i++) {
+      market.current = at(i);
+      clock = at(i) + BAR_MS;
+      await engine.runCycle(at(i));
+      if (i === v1.entryIndex) {
+        const [parent] = store.openPositions();
+        const order = level(v1.entryIndex);
+        // the test sets the resting limit itself (the zone rule is covered above)
+        store.delete(`z_pending:${parent.id}`);
+        if (order) store.set(`z_pending:${parent.id}`, JSON.stringify({ symbol: "TESTUSDT", ...order, after: at(i) }));
+      }
+    }
+    return store;
+  };
+
+  it("fills the limit from the bars, then closes with its v1 position", async () => {
+    const f = v1.entryIndex + 1;
+    let low = Infinity;
+    for (let k = f; k <= v1.exitIndex!; k++) low = Math.min(low, bars[k].low);
+    const level = bars[f].low + (bars[f].high - bars[f].low) * 0.5;
+    const store = await run(() => ({ level, stop: Math.min(low * 0.99, level * 0.95) }));
+    const z = store.closedPositions().find((p) => p.setup === "z");
+    assert.ok(z, "a Z position was opened and closed");
+    assert.equal(z.signalTime, at(f));
+    assert.ok(Math.abs(z.entryPrice - Math.min(bars[f].open, level)) < 1e-9);
+    assert.equal(z.exitReason, "signal");
+    assert.equal(z.closedAt, store.closedPositions().find((p) => p.setup === "v1")!.closedAt);
+    assert.equal(store.withPrefix("z_pending:").length, 0);
+  });
+
+  it("cancels a limit that never filled when its v1 position closes", async () => {
+    const store = await run(() => ({ level: 1e-6, stop: 0.9e-6 }));
+    assert.equal(store.closedPositions().filter((p) => p.setup === "z").length, 0);
+    assert.equal(store.withPrefix("z_pending:").length, 0);
   });
 });

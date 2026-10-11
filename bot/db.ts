@@ -133,6 +133,11 @@ export class BotStore {
     return this.db.prepare("SELECT * FROM positions WHERE status = 'open' ORDER BY opened_at").all().map((r) => toPosition(r as Record<string, unknown>));
   }
 
+  position(id: number): Position | null {
+    const r = this.db.prepare("SELECT * FROM positions WHERE id = ?").get(id);
+    return r ? toPosition(r as Record<string, unknown>) : null;
+  }
+
   closedPositions(limit = 500): Position[] {
     return this.db.prepare("SELECT * FROM positions WHERE status = 'closed' ORDER BY closed_at DESC LIMIT ?").all(limit).map((r) => toPosition(r as Record<string, unknown>));
   }
@@ -201,5 +206,14 @@ export class BotStore {
 
   set(key: string, value: string): void {
     this.db.prepare("INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)").run(key, value);
+  }
+
+  delete(key: string): void {
+    this.db.prepare("DELETE FROM kv WHERE key = ?").run(key);
+  }
+
+  /** Keys starting with `prefix`, with their values. */
+  withPrefix(prefix: string): { key: string; value: string }[] {
+    return this.db.prepare("SELECT key, value FROM kv WHERE substr(key, 1, ?) = ? ORDER BY key").all(prefix.length, prefix) as { key: string; value: string }[];
   }
 }

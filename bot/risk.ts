@@ -21,7 +21,9 @@ export interface SizeInput {
 
 /** Risk per trade and position count of a setup. */
 export function setupRules(cfg: BotConfig, setup: SetupId): { risk: number; maxOpen: number } {
-  return setup === "a" ? { risk: cfg.riskPerTradeA, maxOpen: cfg.maxOpenPositionsA } : { risk: cfg.riskPerTrade, maxOpen: cfg.maxOpenPositions };
+  if (setup === "a") return { risk: cfg.riskPerTradeA, maxOpen: cfg.maxOpenPositionsA };
+  if (setup === "z") return { risk: cfg.riskPerTradeZ, maxOpen: cfg.maxOpenPositions };
+  return { risk: cfg.riskPerTrade, maxOpen: cfg.maxOpenPositions };
 }
 
 export type SizeDecision = { ok: true; quote: number } | { ok: false; reason: string };

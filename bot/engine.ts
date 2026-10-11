@@ -1,6 +1,7 @@
 import { EMPTY_RISK, fetchRiskList, type RiskList } from "../lib/server/binanceRisk";
 import { SETUP_A, runSetupA, type SetupAResult } from "../lib/setups/setupA";
 import { SETUP_V1, isFreshEntry, liquidity30d, runSetupV1, type SetupResult } from "../lib/setups/setupV1";
+import { limitFill, stopInRange, zoneOrder } from "../lib/setups/setupZ";
 import type { Candle } from "../lib/types";
 import type { Broker, Fill, StopStatus } from "./broker";
 import type { BotConfig, SetupId } from "./config";
@@ -58,7 +59,16 @@ interface Candidate {
   stopPct: number;
 }
 
-export const SETUP_LABEL: Record<SetupId, string> = { v1: "v1", a: "A" };
+export const SETUP_LABEL: Record<SetupId, string> = { v1: "v1", a: "A", z: "Z" };
+
+/** A Setup Z limit resting under a v1 position (kv `z_pending:<v1 position id>`). */
+interface ZPending {
+  symbol: string;
+  level: number;
+  stop: number;
+  /** Bars closed after this time (ms, a bar's open) are checked for a fill. */
+  after: number;
+}
 /** Human name of the configured setups, e.g. "Setups v1.2 (first dot) + A (RS below -10%, spike trail)". No "<": Telegram messages are HTML. */
 export function setupsName(cfg: BotConfig): string {
   const name = (s: SetupId) => {
@@ -70,7 +80,7 @@ export function setupsName(cfg: BotConfig): string {
     const shown = notes.filter(Boolean);
     return shown.length ? `${label} (${shown.join(", ")})` : label;
   };
-  return `Setup${cfg.setups.length > 1 ? "s" : ""} ${cfg.setups.map(name).join(" + ")}`;
+  return `Setup${cfg.setups.length > 1 ? "s" : ""} ${cfg.setups.map(name).join(" + ")}${cfg.zAddon ? " + Z (demand add-on)" : ""}`;
 }
 
 const CONCURRENCY = 4;
@@ -79,7 +89,7 @@ const OUTSIDE_HOLDING_USDT = 1;
 
 /** Binance client order id: ≤ 36 chars of [A-Za-z0-9-_]. Setup v1 keeps its original prefix. */
 const clientId = (setup: SetupId, symbol: string, signalTime: number, step: string) =>
-  `${setup === "v1" ? "sv1" : "sva"}-${symbol}-${(signalTime / 1000).toString(36)}-${step}`;
+  `${setup === "v1" ? "sv1" : setup === "a" ? "sva" : "svz"}-${symbol}-${(signalTime / 1000).toString(36)}-${step}`;
 
 const fmt = (v: number) => (v >= 1 ? v.toFixed(4) : v.toPrecision(4));
 const pct = (r: number) => `${r >= 0 ? "+" : ""}${(r * 100).toFixed(2)}%`;
@@ -160,7 +170,13 @@ export class BotEngine {
     });
     report.evaluated = evals.size;
 
-    for (const position of held) await this.manage(position, evals.get(position.symbol), report, risks);
+    // Z limits fill first (on any bar up to the one its v1 position exits on, as the research), then the
+    // positions are managed, then Z positions follow their stop or their v1 position.
+    if (this.cfg.zAddon) await this.fillZ(evals, report);
+    for (const position of held) if (position.setup !== "z") await this.manage(position, evals.get(position.symbol), report, risks);
+    if (this.store.openPositions().some((p) => p.setup === "z")) await this.followZ(evals, report);
+    // A limit whose v1 position has just closed will never fill.
+    for (const { key } of this.store.withPrefix("z_pending:")) if (this.store.position(Number(key.slice("z_pending:".length)))?.status !== "open") this.store.delete(key);
     await this.enter(evals, report, risks, barTime);
     await this.markEquity(barTime + BAR_MS, evals);
 
@@ -273,9 +289,9 @@ export class BotEngine {
 
     let { equity, cash } = await this.account(evals);
     const block = this.risk.entryBlock(equity, this.now());
-    const barRisk: Record<SetupId, number> = { v1: 0, a: 0 };
+    const barRisk: Record<SetupId, number> = { v1: 0, a: 0, z: 0 };
     // v1.2: ≤ maxRiskPerBar of v1 risk per bar (0 = off). Setup A: ≤ 5 × its risk per bar (research).
-    const barCap: Record<SetupId, number> = { v1: this.cfg.maxRiskPerBar > 0 ? this.cfg.maxRiskPerBar : Number.POSITIVE_INFINITY, a: 5 * this.cfg.riskPerTradeA };
+    const barCap: Record<SetupId, number> = { v1: this.cfg.maxRiskPerBar > 0 ? this.cfg.maxRiskPerBar : Number.POSITIVE_INFINITY, a: 5 * this.cfg.riskPerTradeA, z: 5 * this.cfg.riskPerTradeZ };
     for (const { setup, ev, liquidity, signalTime, stopPct } of fresh) {
       const symbol = ev.pair.symbol;
       const tag = `[${SETUP_LABEL[setup]}] ${symbol}`;
@@ -341,11 +357,93 @@ export class BotEngine {
         // Recorded after the position, so a slow or failing lookup never holds up the entry.
         const traits = await this.traitsOf(ev, barTime, market);
         this.store.setTraits(position.id, traits);
-        report.entries.push(`${tag} long @ ${fmt(fill.price)} · ${fill.quote.toFixed(2)} USDT · stop ${fmt(stopPrice)} (−${(stopPct * 100).toFixed(1)}%) · ${tagLine(setup, traits)}`);
+        // Setup Z: a limit at the nearest demand zone under the entry, resting until this position closes.
+        const zone = setup === "v1" && this.cfg.zAddon ? zoneOrder(ev.bars, ev.bars.length - 1) : null;
+        if (zone) this.store.set(`z_pending:${position.id}`, JSON.stringify({ symbol, level: zone.level, stop: zone.stop, after: barTime } satisfies ZPending));
+        report.entries.push(
+          `${tag} long @ ${fmt(fill.price)} · ${fill.quote.toFixed(2)} USDT · stop ${fmt(stopPrice)} (−${(stopPct * 100).toFixed(1)}%) · ${tagLine(setup, traits)}${zone ? ` · Z limit ${fmt(zone.level)} (stop ${fmt(zone.stop)})` : ""}`,
+        );
       } catch (err) {
         report.errors.push(`${tag}: entry failed — ${(err as Error).message}`);
       }
       equity = (await this.account(evals)).equity;
+    }
+  }
+
+  /**
+   * Setup Z, paper only (config): fill the resting limits from the bars that closed. A limit whose v1
+   * position closed before it filled is cancelled.
+   */
+  private async fillZ(evals: Map<string, Evaluation>, report: CycleReport): Promise<void> {
+    const block = this.risk.entryBlock((await this.account(evals)).equity, this.now());
+    let filled = 0;
+    for (const { key, value } of this.store.withPrefix("z_pending:")) {
+      const parentId = Number(key.slice("z_pending:".length));
+      const order = JSON.parse(value) as ZPending;
+      const parent = this.store.position(parentId);
+      if (!parent || parent.status !== "open") {
+        this.store.delete(key);
+        continue;
+      }
+      const ev = evals.get(order.symbol);
+      if (!ev || block) continue; // checked again next bar
+      const bars = ev.bars.filter((b) => b.time * 1000 > order.after);
+      const at = bars.findIndex((b) => limitFill(b, order.level) !== null);
+      if (at < 0) {
+        if (bars.length) this.store.set(key, JSON.stringify({ ...order, after: bars[bars.length - 1].time * 1000 }));
+        continue;
+      }
+      this.store.delete(key);
+      const bar = bars[at];
+      const price = limitFill(bar, order.level)!;
+      const tag = `[Z] ${order.symbol}`;
+      if (!stopInRange(price, order.stop)) {
+        report.skipped.push(`${tag}: zone stop ${((1 - order.stop / price) * 100).toFixed(1)}% under the fill is out of range`);
+        continue;
+      }
+      if (filled + 1 > 5) {
+        report.skipped.push(`${tag}: per-bar risk cap ${(5 * this.cfg.riskPerTradeZ * 100).toFixed(2)}% reached`);
+        continue;
+      }
+      const { equity, cash } = await this.account(evals);
+      const rules = await this.broker.rules(order.symbol);
+      const stopPct = 1 - order.stop / price;
+      const openZ = this.store.openPositions().filter((p) => p.setup === "z").length;
+      const size = sizePosition(this.cfg, { equity, cash, openPositions: openZ, minNotional: rules.ok ? rules.minNotional : 5, setup: "z", stopPct });
+      if (!size.ok) {
+        report.skipped.push(`${tag}: ${size.reason}`);
+        continue;
+      }
+      const signalTime = bar.time * 1000;
+      try {
+        const fill = await this.broker.buy(order.symbol, size.quote, price, clientId("z", order.symbol, signalTime, "e"));
+        const position = this.store.insertPosition({ setup: "z", symbol: order.symbol, signalTime, qty: fill.qty, entryPrice: fill.price, entryFee: fill.fee, cost: fill.quote, stopPrice: order.stop, stopOrderId: null, openedAt: this.now() });
+        this.store.set(`z_parent:${position.id}`, String(parentId));
+        filled++;
+        report.entries.push(`${tag} long @ ${fmt(fill.price)} (zone limit) · ${fill.quote.toFixed(2)} USDT · stop ${fmt(order.stop)} (−${(stopPct * 100).toFixed(1)}%)`);
+      } catch (err) {
+        report.errors.push(`${tag}: entry failed — ${(err as Error).message}`);
+      }
+    }
+
+  }
+
+  /** Setup Z positions: out at their stop (from the fill bar on), or with their v1 position when it closes. */
+  private async followZ(evals: Map<string, Evaluation>, report: CycleReport): Promise<void> {
+    for (const position of this.store.openPositions().filter((p) => p.setup === "z")) {
+      const ev = evals.get(position.symbol);
+      const parentId = Number(this.store.get(`z_parent:${position.id}`));
+      const parent = parentId ? this.store.position(parentId) : null;
+      // The stop, from the fill bar on (a limit filled inside a bar may be stopped in the same bar).
+      const hit = ev?.bars.find((b) => b.time * 1000 >= position.signalTime && b.low <= position.stopPrice);
+      if (hit) {
+        await this.exit(position, Math.min(hit.open, position.stopPrice), "stop", report);
+        continue;
+      }
+      if (!parent || parent.status !== "open") {
+        const ref = ev ? ev.bars[ev.bars.length - 1].close : (parent?.exitPrice ?? position.entryPrice);
+        await this.exit(position, ref, "signal", report);
+      }
     }
   }
 

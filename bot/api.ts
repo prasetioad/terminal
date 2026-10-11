@@ -39,7 +39,7 @@ export interface StatusSnapshot {
   avgReturn: number | null;
   totalPnl: number;
   config: Pick<BotConfig, "riskPerTrade" | "maxOpenPositions" | "maxPositionFraction" | "minBreadth" | "minLiquidity30d" | "dailyLossLimit"> &
-    Partial<Pick<BotConfig, "maxRiskPerBar" | "riskPerTradeA" | "maxOpenPositionsA" | "firstDotOnly" | "maxRsA" | "spikeTightenA" | "minSizeMaxRisk">>;
+    Partial<Pick<BotConfig, "maxRiskPerBar" | "riskPerTradeA" | "maxOpenPositionsA" | "firstDotOnly" | "maxRsA" | "spikeTightenA" | "minSizeMaxRisk" | "zAddon" | "riskPerTradeZ">>;
 }
 
 function stats(open: number, closed: { pnl: number | null; cost: number }[]): SetupStats {
@@ -60,7 +60,7 @@ export async function statusSnapshot(engine: BotEngine, nextRun: number | null):
   const curve = engine.store.equityCurve(1);
   const open = engine.store.openPositions();
   const bySetup: StatusSnapshot["bySetup"] = {};
-  for (const id of engine.cfg.setups) bySetup[id] = stats(open.filter((p) => p.setup === id).length, closed.filter((p) => p.setup === id));
+  for (const id of [...engine.cfg.setups, ...(engine.cfg.zAddon ? (["z"] as const) : [])]) bySetup[id] = stats(open.filter((p) => p.setup === id).length, closed.filter((p) => p.setup === id));
   return {
     mode: engine.cfg.mode,
     setupsName: setupsName(engine.cfg),
@@ -92,6 +92,8 @@ export async function statusSnapshot(engine: BotEngine, nextRun: number | null):
       maxRsA: engine.cfg.maxRsA,
       spikeTightenA: engine.cfg.spikeTightenA,
       minSizeMaxRisk: engine.cfg.minSizeMaxRisk,
+      zAddon: engine.cfg.zAddon,
+      riskPerTradeZ: engine.cfg.riskPerTradeZ,
     },
   };
 }

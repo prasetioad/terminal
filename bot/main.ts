@@ -10,9 +10,9 @@ import { loadEnvFile } from "node:process";
 import { statusSnapshot, startApi } from "./api";
 import { BINANCE_SPOT, BinanceSpotBroker, BinanceSpotClient } from "./binance";
 import { PaperBroker, type Broker } from "./broker";
-import { loadConfig } from "./config";
+import { loadConfig, type SetupId } from "./config";
 import { BotStore } from "./db";
-import { BotEngine, setupsName, type Notifier } from "./engine";
+import { BotEngine, SETUP_LABEL, setupsName, type Notifier } from "./engine";
 import { dailyReport } from "./report";
 import { BAR_MS, BinanceMarketData, SETTLE_MS, lastClosedBar } from "./market";
 import { ConsoleNotifier, TelegramNotifier } from "./telegram";
@@ -45,10 +45,10 @@ const statusText = async () => {
     `<b>${setupsName(cfg)} bot · ${s.mode.toUpperCase()}</b>${s.paused ? " · ⏸ PAUSED" : ""}`,
     `Equity ${s.equity.toFixed(2)} USDT (cash ${s.cash.toFixed(2)})`,
     `Open ${s.openPositions} · closed ${s.closedTrades}${s.winRate !== null ? ` · win ${(s.winRate * 100).toFixed(0)}% · avg ${(s.avgReturn! * 100).toFixed(2)}%` : ""}`,
-    ...(cfg.setups.length > 1
-      ? cfg.setups.map((id) => {
+    ...(Object.keys(s.bySetup ?? {}).length > 1
+      ? (Object.keys(s.bySetup!) as SetupId[]).map((id) => {
           const x = s.bySetup![id]!;
-          return `· ${id === "a" ? "A" : "v1"}: open ${x.open} · closed ${x.closedTrades} · P&L ${x.totalPnl >= 0 ? "+" : ""}${x.totalPnl.toFixed(2)}`;
+          return `· ${SETUP_LABEL[id]}: open ${x.open} · closed ${x.closedTrades} · P&L ${x.totalPnl >= 0 ? "+" : ""}${x.totalPnl.toFixed(2)}`;
         })
       : []),
     `Realized P&L ${s.totalPnl >= 0 ? "+" : ""}${s.totalPnl.toFixed(2)} USDT`,

@@ -49,6 +49,17 @@ Bot bisa menjalankan **Setup v1** (kapitulasi) dan **Setup A** (breakout) bersam
 - **Eksperimen lokal:** `npm run bot:local` membaca `bot/.env.local` (v1.2 + A, paper $300, DB `bot/data/combined.sqlite`, tanpa Telegram karena token Telegram dipakai bot VPS).
 - `npm run bot:replay -- --days 365` menguji fidelity per setup. Hasil wajib: missing 0 · extra 0 · exit mismatches 0.
 
+## 1c. Setup Z: tambahan di zona demand (uji maju, paper saja)
+
+Riset §4.50–4.52 (`docs/ROADMAP.md`). Setiap kali v1 entry di titik hijau, Z memasang **limit buy di atas zona demand terdekat** di bawah harga entry:
+- **Zona:** tempat harga pernah naik ≥ 8% dalam 4 candle, dalam 120 candle terakhir. Batasnya dari low terendah 4 candle di awal rally sampai badan atas candle awal rally.
+- **Jarak:** 2–10% di bawah close titik hijau. Kalau ada beberapa, yang terdekat dipakai.
+- **Stop:** 0,5% di bawah dasar zona. Dilewati kalau jaraknya ≤ 1% atau > 15% dari harga isi.
+- **Exit:** bersama posisi v1 (titik merah pertama) atau di stopnya sendiri. Limit yang belum terisi dibatalkan saat posisi v1 tutup.
+- **Risiko per koin dibagi:** v1 0,75% + Z 0,25% (`RISK_PER_TRADE=0.0075`, `RISK_PER_TRADE_Z=0.0025`, `MAX_RISK_PER_BAR=0.0375`). Z maksimal 5 entry per candle.
+- **Aktifkan** dengan `Z_ADDON=1`. Hanya mode paper: config menolak Z di testnet/live. Limit diisi dari candle 4h yang tutup, seperti backtest. Replay membuktikan bot identik dengan aturan riset (`npm run bot:replay`: Z 13/13 trade, 0 selisih).
+- Logika zona ada di `lib/setups/setupZ.ts`. Posisi Z ditandai `[Z]` di Telegram, panel, dan laporan.
+
 ## 2. Menjalankan secara lokal (paper)
 
 ```bash

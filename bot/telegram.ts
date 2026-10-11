@@ -1,4 +1,4 @@
-import type { BotEngine, Notifier } from "./engine";
+import { SETUP_LABEL, type BotEngine, type Notifier } from "./engine";
 
 /**
  * Telegram: notifications, and a few commands from the configured chat only.
@@ -61,7 +61,7 @@ export class TelegramNotifier implements Notifier {
         return this.send(await reportText());
       case "/positions": {
         const open = engine.store.openPositions();
-        return this.send(open.length ? open.map((p) => `[${p.setup === "a" ? "A" : "v1"}] ${p.symbol} @ ${p.entryPrice.toPrecision(6)} · stop ${p.stopPrice.toPrecision(6)} · ${p.cost.toFixed(2)} USDT`).join("\n") : "No open positions");
+        return this.send(open.length ? open.map((p) => `[${SETUP_LABEL[p.setup]}] ${p.symbol} @ ${p.entryPrice.toPrecision(6)} · stop ${p.stopPrice.toPrecision(6)} · ${p.cost.toFixed(2)} USDT`).join("\n") : "No open positions");
       }
       case "/pause":
         engine.risk.setPaused(true, "telegram /pause");

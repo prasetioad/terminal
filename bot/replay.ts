@@ -8,6 +8,7 @@
 import { EMPTY_RISK } from "../lib/server/binanceRisk";
 import { SETUP_A, runSetupA } from "../lib/setups/setupA";
 import { liquidity30d, runSetupV1 } from "../lib/setups/setupV1";
+import { limitFill, stopInRange, zoneOrder } from "../lib/setups/setupZ";
 import type { Candle } from "../lib/types";
 import { loadSeries } from "../research/data";
 import { PaperBroker } from "./broker";
@@ -50,7 +51,7 @@ const silent: Notifier = { send: async () => {} };
 export interface ReplayResult {
   store: BotStore;
   /** Engine trades the bot should have taken (fresh entries inside the window, liquid enough; Setup A: confirmed). */
-  expected: { setup: "v1" | "a"; symbol: string; entryTime: number; exitTime: number | null; reason: string | null }[];
+  expected: { setup: "v1" | "a" | "z"; symbol: string; entryTime: number; exitTime: number | null; reason: string | null }[];
 }
 
 export async function replay(series: Map<string, Candle[]>, from: number, to: number, cfg: BotConfig): Promise<ReplayResult> {
@@ -74,7 +75,24 @@ export async function replay(series: Map<string, Candle[]>, from: number, to: nu
     };
     if (cfg.setups.includes("v1")) {
       const r = runSetupV1(window, { stoch: cfg.stoch, intervalMs: BAR_MS, firstDotOnly: cfg.firstDotOnly });
-      for (const t of [...r.trades, ...(r.open ? [r.open] : [])]) take("v1", t);
+      for (const t of [...r.trades, ...(r.open ? [r.open] : [])]) {
+        take("v1", t);
+        // Setup Z: the zone limit from the bar after the v1 entry to its exit; out at its stop or with v1.
+        if (!cfg.zAddon || t.entryTime < from || t.entryTime > to || liquidity30d(bars, t.entryIndex, BAR_MS) < cfg.minLiquidity30d) continue;
+        const order = zoneOrder(window, t.entryIndex);
+        const last = t.exitIndex ?? window.length - 1;
+        if (!order) continue;
+        for (let f = t.entryIndex + 1; f <= last; f++) {
+          const fill = limitFill(window[f], order.level);
+          if (fill === null) continue;
+          if (stopInRange(fill, order.stop)) {
+            let stopped: number | null = null;
+            for (let k = f; k <= last && stopped === null; k++) if (window[k].low <= order.stop) stopped = k;
+            expected.push({ setup: "z", symbol, entryTime: window[f].time * 1000, exitTime: stopped !== null ? window[stopped].time * 1000 : t.exitTime, reason: stopped !== null ? "stop" : t.exitTime ? "signal" : null });
+          }
+          break;
+        }
+      }
     }
     if (cfg.setups.includes("a")) {
       const r = runSetupA(window, BAR_MS, { btc: series.get("BTCUSDT"), maxRs: cfg.maxRsA ?? undefined, spikeTighten: cfg.spikeTightenA ? SETUP_A.spikeTighten : undefined });
@@ -99,17 +117,23 @@ async function main() {
 
   // 1) Fidelity, per setup: unconstrained sizing → the bot must take exactly the engine's trades.
   // (breadth 1: the fidelity check covers execution; breadth is measured on the full universe in research/)
-  for (const setup of ["v1", "a"] as const) {
-    const wide = { ...loadConfig({ ...process.env, MODE: "paper", SETUPS: setup }), maxOpenPositions: 50, maxOpenPositionsA: 50, riskPerTrade: 0.0005, riskPerTradeA: 0.0005, minLiquidity30d: 0, minBreadth: 1, maxRiskPerBar: 0, paperStartEquity: 1e6 };
+  for (const setup of ["v1", "a", "z"] as const) {
+    const wide = {
+      ...loadConfig({ ...process.env, MODE: "paper", SETUPS: setup === "a" ? "a" : "v1", Z_ADDON: setup === "z" ? "1" : "0" }),
+      maxOpenPositions: 50, maxOpenPositionsA: 50, riskPerTrade: 0.0005, riskPerTradeA: 0.0005, riskPerTradeZ: 0.0005, minLiquidity30d: 0, minBreadth: 1, maxRiskPerBar: 0, paperStartEquity: 1e6,
+    };
     const a = await replay(series, from, to, wide);
-    const taken = [...a.store.openPositions(), ...a.store.closedPositions(100_000)];
+    // Z rides on v1: its run takes both; only the Z trades are compared.
+    const only = (x: { setup: string }) => setup !== "z" || x.setup === "z";
+    a.expected = a.expected.filter(only);
+    const taken = [...a.store.openPositions(), ...a.store.closedPositions(100_000)].filter(only);
     const key = (s: string, t: number) => `${s}|${t}`;
     const takenKeys = new Set(taken.map((p) => key(p.symbol, p.signalTime)));
     const expectedKeys = new Set(a.expected.map((e) => key(e.symbol, e.entryTime)));
     const missing = a.expected.filter((e) => !takenKeys.has(key(e.symbol, e.entryTime)));
     const extra = taken.filter((p) => !expectedKeys.has(key(p.symbol, p.signalTime)));
     // The bot books a v1 signal exit as "signal" and a Setup A one as "trail"; both are the engine's non-stop exit.
-    const exitMismatch = a.store.closedPositions(100_000).filter((p) => {
+    const exitMismatch = a.store.closedPositions(100_000).filter(only).filter((p) => {
       const e = a.expected.find((x) => key(x.symbol, x.entryTime) === key(p.symbol, p.signalTime));
       return !e || (e.reason === "stop") !== (p.exitReason === "stop");
     });
