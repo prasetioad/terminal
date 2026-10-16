@@ -27,6 +27,8 @@ export interface TradeRules {
   reason?: string;
   /** Smallest order value the exchange accepts, USDT. */
   minNotional: number;
+  /** Quantity step of the pair (base units); orders are floored to it. */
+  stepSize?: number;
 }
 
 export interface Broker {

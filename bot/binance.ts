@@ -177,7 +177,7 @@ export class BinanceSpotBroker implements Broker {
     if (info.status !== "TRADING" || !info.isSpotTradingAllowed) return { ok: false, reason: `status ${info.status}`, minNotional: info.minNotional };
     if (!info.orderTypes.includes("MARKET")) return { ok: false, reason: "no market orders", minNotional: info.minNotional };
     if (!info.orderTypes.includes("STOP_LOSS") && !info.orderTypes.includes("STOP_LOSS_LIMIT")) return { ok: false, reason: "no stop orders", minNotional: info.minNotional };
-    return { ok: true, minNotional: info.minNotional };
+    return { ok: true, minNotional: info.minNotional, stepSize: Number(info.stepSize) };
   }
 
   /** Place an order, or — if the request died in flight — find the one it may have created. */

@@ -334,7 +334,8 @@ export class BotEngine {
         }
       }
       const openOfSetup = this.store.openPositions().filter((p) => p.setup === setup).length;
-      const size = sizePosition(this.cfg, { equity, cash, openPositions: openOfSetup, minNotional: rules.minNotional, setup, stopPct });
+      const stepValue = (rules.stepSize ?? 0) * ev.bars[ev.bars.length - 1].close;
+      const size = sizePosition(this.cfg, { equity, cash, openPositions: openOfSetup, minNotional: rules.minNotional, setup, stopPct, stepValue });
       if (!size.ok) {
         report.skipped.push(`${tag}: ${size.reason}`);
         continue;
@@ -409,7 +410,7 @@ export class BotEngine {
       const rules = await this.broker.rules(order.symbol);
       const stopPct = 1 - order.stop / price;
       const openZ = this.store.openPositions().filter((p) => p.setup === "z").length;
-      const size = sizePosition(this.cfg, { equity, cash, openPositions: openZ, minNotional: rules.ok ? rules.minNotional : 5, setup: "z", stopPct });
+      const size = sizePosition(this.cfg, { equity, cash, openPositions: openZ, minNotional: rules.ok ? rules.minNotional : 5, setup: "z", stopPct, stepValue: (rules.stepSize ?? 0) * price });
       if (!size.ok) {
         report.skipped.push(`${tag}: ${size.reason}`);
         continue;

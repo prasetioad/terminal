@@ -34,6 +34,16 @@ const MAX_BARS = 1000; // one klines request
 /** Open time of the last 4h bar that has closed and settled at `now`. */
 export const lastClosedBar = (now: number) => Math.floor((now - SETTLE_MS) / BAR_MS) * BAR_MS - BAR_MS;
 
+/** When the cycle after `now` is due: the next bar close plus the settle delay. */
+export const nextRunAt = (now: number) => lastClosedBar(now) + 2 * BAR_MS + SETTLE_MS;
+
+/**
+ * The bar a cycle scheduled for `scheduledFor` processes. A timer can fire a little before its time
+ * (the wall clock is adjusted while timers run on a monotonic one): the bar is the scheduled one,
+ * never the one before it.
+ */
+export const barDue = (scheduledFor: number, now: number) => lastClosedBar(Math.max(now, scheduledFor));
+
 
 export class BinanceMarketData implements MarketData {
   async universe(): Promise<PairInfo[]> {

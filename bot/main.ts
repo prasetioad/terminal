@@ -14,7 +14,7 @@ import { loadConfig, type SetupId } from "./config";
 import { BotStore } from "./db";
 import { BotEngine, SETUP_LABEL, setupsName, type Notifier } from "./engine";
 import { dailyReport } from "./report";
-import { BAR_MS, BinanceMarketData, SETTLE_MS, lastClosedBar } from "./market";
+import { BAR_MS, BinanceMarketData, barDue, lastClosedBar, nextRunAt } from "./market";
 import { ConsoleNotifier, TelegramNotifier } from "./telegram";
 import { BinanceTraitSource } from "./traits";
 
@@ -60,6 +60,13 @@ const statusText = async () => {
 
 async function cycle(barTime: number) {
   if (running) return;
+  // A bar is processed once: a second run would reset its per-bar risk caps.
+  const last = Number(store.get("last_bar") ?? 0);
+  if (barTime <= last) {
+    store.log("warn", "cycle", `bar ${new Date(barTime).toISOString()} already processed (last ${new Date(last).toISOString()}) — skipped`);
+    return;
+  }
+  if (last && barTime > last + BAR_MS) store.log("warn", "cycle", `${(barTime - last) / BAR_MS - 1} bar(s) after ${new Date(last).toISOString()} were not processed (downtime?)`);
   running = true;
   try {
     const r = await engine.runCycle(barTime);
@@ -91,12 +98,12 @@ function scheduleReport() {
 
 /** Run after every 4h close (plus a settle delay); catch up on start if the last bar wasn't processed. */
 function schedule() {
-  const next = lastClosedBar(Date.now()) + 2 * BAR_MS + SETTLE_MS;
+  const next = nextRunAt(Date.now());
   nextRun = next;
   timer = setTimeout(async () => {
-    await cycle(lastClosedBar(Date.now()));
+    await cycle(barDue(next, Date.now()));
     schedule();
-  }, next - Date.now());
+  }, Math.max(0, next - Date.now()));
 }
 
 async function start() {

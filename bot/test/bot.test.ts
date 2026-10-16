@@ -17,7 +17,7 @@ import { dailyReport, traitCheck } from "../report";
 import { EMPTY_RISK, parseDelistTitles, type RiskList } from "../../lib/server/binanceRisk";
 
 const noRisk = async () => EMPTY_RISK;
-import { BAR_MS } from "../market";
+import { BAR_MS, SETTLE_MS, barDue, lastClosedBar, nextRunAt } from "../market";
 import { ReplayMarketData } from "../replay";
 import { RiskGate, sizePosition } from "../risk";
 import { breadthDD, range20, tagsOf, type TraitSource } from "../traits";
@@ -102,6 +102,20 @@ describe("risk", () => {
     assert.ok(v1.ok && Math.abs(v1.quote - 20) < 1e-9);
     assert.throws(() => loadConfig({ MIN_SIZE_MAX_RISK: "0.1" }), /MIN_SIZE_MAX_RISK/);
   });
+  it("keeps the stop a valid order on a pair with a coarse quantity step", () => {
+    // NEAR, Oct 2026: $5.12, step 0.1 ($0.51), min $5. Without the step, $6.52 passed; filled 1.2, the stop could only take 1.1 ($4.79).
+    const live = loadConfig({ MIN_SIZE_MAX_RISK: "0.015" });
+    const plain = sizePosition(live, { equity: 97.77, cash: 65, openPositions: 0, minNotional: 5 });
+    assert.ok(plain.ok && Math.abs(plain.quote - 6.518) < 0.01);
+    const near = sizePosition(live, { equity: 97.77, cash: 65, openPositions: 0, minNotional: 5, stepValue: 0.512 });
+    assert.ok(near.ok && near.quote > 7.4, "the minimum valid size, within the 1.5% cap");
+    // what Binance does with it: buy floored to the step, a base-asset fee, the stop floored again
+    const held = Math.floor((near.quote / 5.12) * 10) / 10 - 0.0014;
+    assert.ok((Math.floor(held * 10) / 10) * 5.12 * 0.85 >= 5);
+    // without the small-account cap it is skipped, not taken too small
+    assert.equal(sizePosition(loadConfig({}), { equity: 97.77, cash: 65, openPositions: 0, minNotional: 5, stepValue: 0.512 }).ok, false);
+  });
+
   it("blocks entries past the daily loss limit, and when paused", () => {
     const store = new BotStore(":memory:");
     const gate = new RiskGate(cfg, store);
@@ -732,5 +746,21 @@ describe("setup Z (demand-zone add-on, paper)", () => {
     const store = await run(() => ({ level: 1e-6, stop: 0.9e-6 }));
     assert.equal(store.closedPositions().filter((p) => p.setup === "z").length, 0);
     assert.equal(store.withPrefix("z_pending:").length, 0);
+  });
+});
+
+describe("cycle schedule", () => {
+  const bar = Date.UTC(2026, 9, 15, 12); // a 4h bar's open
+  it("runs each bar once, after its close and the settle delay", () => {
+    const now = bar + BAR_MS + SETTLE_MS + 5_000; // just after the 12:00 bar closed and settled
+    assert.equal(lastClosedBar(now), bar);
+    assert.equal(nextRunAt(now), bar + 2 * BAR_MS + SETTLE_MS); // the 16:00 bar's turn
+  });
+  it("processes the scheduled bar even when the timer fires a little early", () => {
+    const due = nextRunAt(bar + BAR_MS + SETTLE_MS + 5_000);
+    // fired 3 ms early: recomputing from the clock alone would give the 12:00 bar again (Oct 2026: bars run twice, the next one skipped)
+    assert.equal(lastClosedBar(due - 3), bar);
+    assert.equal(barDue(due, due - 3), bar + BAR_MS);
+    assert.equal(barDue(due, due + 60_000), bar + BAR_MS);
   });
 });

@@ -17,6 +17,8 @@ export interface SizeInput {
   setup?: SetupId;
   /** Fraction lost at the stop (Setup A: 8×ATR ÷ entry). Default: Setup v1's 15%. */
   stopPct?: number;
+  /** USDT value of one quantity step of the pair (step size × price); 0 when unknown (paper). */
+  stepValue?: number;
 }
 
 /** Risk per trade and position count of a setup. */
@@ -38,8 +40,10 @@ export function sizePosition(cfg: BotConfig, s: SizeInput): SizeDecision {
   if (s.openPositions >= maxOpen) return { ok: false, reason: `max ${maxOpen} open positions` };
   const byRisk = (s.equity * risk) / stopPct;
   const quote = Math.min(byRisk, s.equity * cfg.maxPositionFraction, s.cash * 0.98);
-  // The stop, once hit, must still be a valid order (with a margin for fees and rounding).
-  const minQuote = (s.minNotional * 1.1) / (1 - stopPct);
+  // The stop, once hit, must still be a valid order. The buy and the stop are each floored to the
+  // pair's quantity step, and a fee in the base asset leaves the holding just under a step: up to two
+  // steps lost (NEAR Oct 2026: a $6.52 buy filled 1.2, the stop could only take 1.1 → $4.79 < $5).
+  const minQuote = (s.minNotional * 1.1) / (1 - stopPct) + 2 * (s.stepValue ?? 0);
   if (quote >= minQuote) return { ok: true, quote };
   // Small accounts: the smallest valid size, if its loss at the stop stays within the cap.
   if (cfg.minSizeMaxRisk > 0 && minQuote * stopPct <= s.equity * cfg.minSizeMaxRisk && minQuote <= s.cash * 0.98 && minQuote <= s.equity * cfg.maxPositionFraction) {

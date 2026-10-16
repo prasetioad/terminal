@@ -974,6 +974,41 @@ Pembanding: v1.2 1% + A, Calmar 1,92 │ 2,20.
 - **Status (2026-10-11):** Z berjalan di **bot paper** sebagai uji maju (`Z_ADDON=1`, v1 0,75% + Z 0,25%, `MAX_RISK_PER_BAR=0.0375`). Bot live tidak berubah. Replay 365 hari × 25 pair: Z 13/13 trade identik dengan aturan riset. Dievaluasi setelah ≥ 30 trade Z tertutup, dengan membandingkan hasil per R dan kurva paper vs bot live.
 - **Batas rugi harian bot (−5%) tidak ada di portofolio riset**, sehingga semua backtest berasumsi tanpa batas harian. Menaikkannya tidak mengubah backtest. Efeknya di bot hanya bisa diukur kalau simulator diberi batas harian.
 
+### 4.53 TP di titik merah pertama MaxFlow (4h / 1D) untuk Setup A dan Z (usulan pemilik, riset lokal)
+
+`npx tsx research/red-exit.ts`. Titik merah = wt1 memotong ke bawah wt2 di atas nol, diketahui di candle setelahnya (titik merah 1D dari candle harian UTC, berlaku saat hari itu tutup). Stop awal tetap. Biaya 0,2%.
+
+| Exit | Per trade IS │ OOS | Lama pegang | Portofolio Calmar IS │ OOS |
+|---|---|---|---|
+| **Setup A sekarang** (chandelier 8×ATR) | **0,81 │ 1,34R** | 19 hari | **1,92 │ 2,19** |
+| A: titik merah 4h | 0,02 │ 0,12R | 0,8 hari | 0,98 │ 1,33 |
+| A: titik merah 1D | 0,25 │ 0,32R | 7 hari | 1,31 │ 1,54 |
+| A: chandelier atau titik merah 1D | 0,23 │ 0,31R | 7 hari | 1,32 │ 1,59 |
+| **Z sekarang** (keluar bersama v1, titik merah 4h) | **0,50 │ 0,78R** | 2 hari | **2,18 │ 2,39** |
+| Z: titik merah 1D setelah terisi | 0,42 │ 0,35R (win 24 │ 27%) | 5 hari | 1,43 │ 1,57 |
+
+- **Setup A:** titik merah memotong tren di tengah jalan. Hasil per trade turun 70–98%, karena edge A ada di segelintir tren panjang (§4.39). ❌
+- **Z:** dipegang lebih lama, lebih banyak yang kembali turun ke stop di bawah zona. Win rate turun ke 24–27%, dan portofolio memburuk. ❌
+- Exit masing-masing setup tetap.
+
+### 4.54 Z versi 1h: pemicu v1.2 4h, zona / limit / stop di candle 1h (usulan pemilik, riset lokal)
+
+`npx tsx research/z1h.ts`. Grid 36 sel: lookback 30/50/80 candle 1h × rally 4/6/8% dalam 4/8 candle × jarak 1–5% / 2–8%. Stop 0,5% di bawah dasar zona (dicek per 1h), exit bersama v1.2.
+
+Pembanding:
+- live (v1.2 1% + A): Calmar 1,92 │ 2,20;
+- paper (v1.2 0,75% + A + Z-4h 0,25%): 2,18 │ 2,39. Z-4h per trade 0,50 │ 0,78R, stop median −5,1%.
+- 1.055 dari 2.182 sinyal v1.2 tidak punya zona 4h.
+
+- **Lookback hampir tidak berpengaruh** (30, 50, 80 hampir identik): zona yang terpilih hampir selalu yang baru terbentuk.
+- **Per trade positif di kedua periode di 24/36 sel.** Yang gagal adalah rally 6–8% dalam 4 candle, dengan hanya 2–33 trade.
+- **Wilayah yang kokoh: rally 4% dalam 8 candle**, 0,70–0,89R │ 0,38–0,74R per trade, sekitar 100 trade per periode, stop median −3%. Setara Z-4h.
+- **Portofolio**, sel yang Calmar-nya lebih baik dari paper di kedua periode:
+  - pengganti Z-4h: 2/36;
+  - kaki ketiga (v1.2 0,5% + Z-4h + Z-1h): 0/36;
+  - **pengisi sinyal tanpa zona 4h: 12/36.** Contoh: 4% / 8 candle / 1–5% → 2,22–2,26 │ 2,46. Selisihnya kecil (+0,04–0,08), dan sebagian sel hanya berisi 1–10 trade.
+- **Putusan:** ➖ Z-1h punya edge per trade yang setara Z-4h, tapi tidak memperbaiki portofolio secara berarti, karena sebagian besar trade-nya tumpang tindih dengan Z-4h. Sebagai pengisi celah, manfaatnya kecil dan belum cukup untuk menambah kompleksitas bot. Uji maju tetap Z-4h saja.
+
 ## 5. Roadmap
 
 Setiap tahap punya hasil yang bisa langsung dipakai dan syarat lulus.
@@ -1159,3 +1194,8 @@ Exchange (Binance, Bybit, OKX, Coinbase, KuCoin, Deribit)
 - **2026-10-06:** Perbaikan Gemini (ADX, tren 1h, retest, SL ATR) diuji (§4.26): 0/48 kombinasi positif setelah fee. Gagal.
 - **2026-10-11:** Riset lanjutan §4.37–4.47: candle mingguan, audit bias (Setup A kokoh di semua timeframe; v1.2 rapuh), risk/reward, entry di titik SL, sapuan support, USDT dominance (+ MaxFlow), skrining koin harian, Setup C, uji kontrol harness, anatomi pemenang. Bot tidak diubah kecuali pencatatan ciri entry (`bot/traits.ts`, informasional) untuk menguji hipotesis §4.47 pada data live.
 - **2026-10-11:** Setup Z (§4.50–4.52) diimplementasikan (`lib/setups/setupZ.ts`, bot `Z_ADDON`, paper saja) dan dijalankan di bot paper sebagai uji maju. 50 tes; replay Z 13/13 identik dengan riset.
+- **2026-10-16:** Dua perbaikan bot.
+  - **(1) Ukuran posisi minimum** kini memperhitungkan step kuantitas pair dan fee dalam koin. Di NEAR, entry $6,52 terisi 1,2 NEAR, stop hanya bisa 1,1 NEAR = $4,79 < minimum $5, sehingga stop ditolak dan entry dibatalkan.
+  - **(2) Jadwal siklus:** timer yang menyala beberapa milidetik lebih awal membuat candle sebelumnya diproses ulang dan candle berikutnya terlewat (paper 12/10, live 5/5 sejak 4 Okt). Sekarang candle yang dijadwalkan selalu yang diproses, candle yang sudah diproses ditolak (batas per candle tidak bisa jebol), dan candle yang terlewat diberi peringatan.
+  - Bot paper sempat membuka 9 posisi v1 dari kapitulasi 15 Okt 12:00 (seharusnya maksimal 5) karena candle itu diproses dua kali. Posisi dibiarkan berjalan dan dicatat untuk evaluasi Z.
+
