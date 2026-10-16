@@ -58,6 +58,8 @@ npx tsx research/setup-v1.ts --stoch 5,3,3
 | `demand-entry.ts` | v1.2's signal bought with a limit at the prior balance or demand zone (from the last 120 bars) instead of the close, alone or half-and-half; per trade and in the portfolio with Setup A. |
 | `demand-z.ts` | Z (demand-zone limit next to v1.2's signal): add-on vs other coins, stop under the zone 0.5% / 1% vs the first entry's, and a 54-cell robustness grid (rally × bars × distance × buffer). |
 | `demand-z-stops.ts` | Z's stop (zone low − 0.5% / − 0.5 or 1 ATR / zone middle / swing low) and the new-risk-per-bar cap (5 / 7.5 / 10%). |
+| `red-exit.ts` | Take profit at MaxFlow's first red dot (4h or 1D) for Setup A (vs its chandelier) and Z (vs exiting with v1). |
+| `z1h.ts` | Z with the zone, limit and stop on 1h candles (v1.2's 4h signal as the trigger): a 36-cell grid, as a replacement, a third leg, or a filler for signals with no 4h zone. |
 | `preload.ts` | Fill the kline cache for one interval (`npx tsx research/preload.ts 1h`, resumable; the 1h cache is ~1.3 GB). |
 | `variants.ts` | Upgrade research for v1.1 (H1–H8: breadth, ranking, sizing, slots, risk cap per bar, exits, BTC regime, stoch-only). Bot-like compounding portfolio marked to market every bar; grid selected on in-sample only. Dataset cached in `research/.cache/variants-dataset.json`. |
 | `setup-v1.ts` | Backtest with point-in-time liquidity (trailing 30-day average daily quote volume at the signal), breadth (pairs signalling on the same bar), in-/out-of-sample split at 2024-07-01, per-year results, listed vs delisted, bootstrap 95% CI and a bot-like portfolio (most liquid first, ≤ 15 open, 1% risk). |
