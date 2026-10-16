@@ -1199,3 +1199,7 @@ Exchange (Binance, Bybit, OKX, Coinbase, KuCoin, Deribit)
   - **(2) Jadwal siklus:** timer yang menyala beberapa milidetik lebih awal membuat candle sebelumnya diproses ulang dan candle berikutnya terlewat (paper 12/10, live 5/5 sejak 4 Okt). Sekarang candle yang dijadwalkan selalu yang diproses, candle yang sudah diproses ditolak (batas per candle tidak bisa jebol), dan candle yang terlewat diberi peringatan.
   - Bot paper sempat membuka 9 posisi v1 dari kapitulasi 15 Okt 12:00 (seharusnya maksimal 5) karena candle itu diproses dua kali. Posisi dibiarkan berjalan dan dicatat untuk evaluasi Z.
 
+- **2026-10-16:** Setup Z siap untuk testnet/live (default mati di bot ops) dan pencatat setoran.
+  - **Z di exchange:** limit GTC sungguhan saat v1 entry. Reconcile mencatat isian dan memasang stop, membatalkan limit saat v1 tutup (menjual bagian yang terisi), dan menghitung kas terkunci dalam equity. Penjaga baru: posisi tanpa stop di exchange dipasangi stop, atau dijual kalau gagal. ID order memakai detik bulat (batas 36 karakter Binance).
+  - **Setoran/penarikan:** `/deposit` dan `/withdraw` (migrasi DB v4, tabel `flows`). Laporan, "sejak mulai", dan batas rugi harian dihitung bersih dari setoran.
+  - Skenario testnet 10–12 (Z) lulus. Skenario 4 tidak terisi karena harga testnet tidak turun 0,02% dalam 30 menit (kondisi pasar; lulus di run sebelumnya). Unit test 64/64.

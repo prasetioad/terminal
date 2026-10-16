@@ -79,6 +79,8 @@ const MIGRATIONS: readonly string[] = [
   `ALTER TABLE positions ADD COLUMN setup TEXT NOT NULL DEFAULT 'v1';`,
   // v3: entry traits, JSON (bot/traits.ts)
   `ALTER TABLE positions ADD COLUMN traits TEXT;`,
+  // v4: deposits (+) and withdrawals (−) of USDT, so results are not mistaken for them
+  `CREATE TABLE flows (id INTEGER PRIMARY KEY AUTOINCREMENT, time INTEGER NOT NULL, amount REAL NOT NULL, note TEXT NOT NULL DEFAULT '');`,
 ];
 
 const toPosition = (r: Record<string, unknown>): Position => ({
@@ -172,6 +174,21 @@ export class BotStore {
       .prepare("UPDATE positions SET status = 'closed', exit_price = ?, exit_fee = ?, proceeds = ?, exit_reason = ?, closed_at = ?, pnl = ? WHERE id = ?")
       .run(exit.price, exit.fee, exit.proceeds, exit.reason, exit.time, pnl, id);
     return { ...p, status: "closed", exitPrice: exit.price, exitFee: exit.fee, proceeds: exit.proceeds, exitReason: exit.reason, closedAt: exit.time, pnl };
+  }
+
+  /* ─────────────── deposits and withdrawals ─────────────── */
+
+  addFlow(time: number, amount: number, note = ""): void {
+    this.db.prepare("INSERT INTO flows (time, amount, note) VALUES (?, ?, ?)").run(time, amount, note);
+  }
+
+  /** Net USDT deposited (withdrawals negative) from `since` (ms) on; all time by default. */
+  netFlows(since = 0): number {
+    return (this.db.prepare("SELECT coalesce(sum(amount), 0) n FROM flows WHERE time >= ?").get(since) as { n: number }).n;
+  }
+
+  flows(limit = 50): { time: number; amount: number; note: string }[] {
+    return this.db.prepare("SELECT time, amount, note FROM flows ORDER BY id DESC LIMIT ?").all(limit) as { time: number; amount: number; note: string }[];
   }
 
   /* ─────────────── events, equity, kv ─────────────── */

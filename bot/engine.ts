@@ -3,7 +3,7 @@ import { SETUP_A, runSetupA, type SetupAResult } from "../lib/setups/setupA";
 import { SETUP_V1, isFreshEntry, liquidity30d, runSetupV1, type SetupResult } from "../lib/setups/setupV1";
 import { limitFill, stopInRange, zoneOrder } from "../lib/setups/setupZ";
 import type { Candle } from "../lib/types";
-import type { Broker, Fill, StopStatus } from "./broker";
+import { PaperBroker, type Broker, type Fill, type StopStatus } from "./broker";
 import type { BotConfig, SetupId } from "./config";
 import type { BotStore, ExitReason, Position } from "./db";
 import { BAR_MS, type MarketData, type PairInfo } from "./market";
@@ -66,8 +66,10 @@ interface ZPending {
   symbol: string;
   level: number;
   stop: number;
-  /** Bars closed after this time (ms, a bar's open) are checked for a fill. */
+  /** Bars closed after this time (ms, a bar's open) are checked for a fill (paper). */
   after: number;
+  /** The limit order resting on the exchange (testnet / live). */
+  orderId?: string;
 }
 /** Human name of the configured setups, e.g. "Setups v1.2 (first dot) + A (RS below -10%, spike trail)". No "<": Telegram messages are HTML. */
 export function setupsName(cfg: BotConfig): string {
@@ -88,8 +90,9 @@ const CONCURRENCY = 4;
 const OUTSIDE_HOLDING_USDT = 1;
 
 /** Binance client order id: ≤ 36 chars of [A-Za-z0-9-_]. Setup v1 keeps its original prefix. */
+/** Whole seconds: a fraction would turn into a long base-36 tail and break the 36-character limit. */
 const clientId = (setup: SetupId, symbol: string, signalTime: number, step: string) =>
-  `${setup === "v1" ? "sv1" : setup === "a" ? "sva" : "svz"}-${symbol}-${(signalTime / 1000).toString(36)}-${step}`;
+  `${setup === "v1" ? "sv1" : setup === "a" ? "sva" : "svz"}-${symbol}-${Math.floor(signalTime / 1000).toString(36)}-${step}`;
 
 const fmt = (v: number) => (v >= 1 ? v.toFixed(4) : v.toPrecision(4));
 const pct = (r: number) => `${r >= 0 ? "+" : ""}${(r * 100).toFixed(2)}%`;
@@ -175,8 +178,10 @@ export class BotEngine {
     if (this.cfg.zAddon) await this.fillZ(evals, report);
     for (const position of held) if (position.setup !== "z") await this.manage(position, evals.get(position.symbol), report, risks);
     if (this.store.openPositions().some((p) => p.setup === "z")) await this.followZ(evals, report);
-    // A limit whose v1 position has just closed will never fill.
-    for (const { key } of this.store.withPrefix("z_pending:")) if (this.store.position(Number(key.slice("z_pending:".length)))?.status !== "open") this.store.delete(key);
+    // A limit whose v1 position has just closed will never fill: dropped (paper) or cancelled on the exchange.
+    if (this.broker.kind === "paper") {
+      for (const { key } of this.store.withPrefix("z_pending:")) if (this.store.position(Number(key.slice("z_pending:".length)))?.status !== "open") this.store.delete(key);
+    } else if (this.store.withPrefix("z_pending:").length) await this.syncZ(report);
     await this.enter(evals, report, risks, barTime);
     await this.markEquity(barTime + BAR_MS, evals);
 
@@ -360,10 +365,8 @@ export class BotEngine {
         this.store.setTraits(position.id, traits);
         // Setup Z: a limit at the nearest demand zone under the entry, resting until this position closes.
         const zone = setup === "v1" && this.cfg.zAddon ? zoneOrder(ev.bars, ev.bars.length - 1) : null;
-        if (zone) this.store.set(`z_pending:${position.id}`, JSON.stringify({ symbol, level: zone.level, stop: zone.stop, after: barTime } satisfies ZPending));
-        report.entries.push(
-          `${tag} long @ ${fmt(fill.price)} · ${fill.quote.toFixed(2)} USDT · stop ${fmt(stopPrice)} (−${(stopPct * 100).toFixed(1)}%) · ${tagLine(setup, traits)}${zone ? ` · Z limit ${fmt(zone.level)} (stop ${fmt(zone.stop)})` : ""}`,
-        );
+        const zNote = zone ? await this.restZ(position, zone, barTime) : "";
+        report.entries.push(`${tag} long @ ${fmt(fill.price)} · ${fill.quote.toFixed(2)} USDT · stop ${fmt(stopPrice)} (−${(stopPct * 100).toFixed(1)}%) · ${tagLine(setup, traits)}${zNote}`);
       } catch (err) {
         report.errors.push(`${tag}: entry failed — ${(err as Error).message}`);
       }
@@ -376,6 +379,7 @@ export class BotEngine {
    * position closed before it filled is cancelled.
    */
   private async fillZ(evals: Map<string, Evaluation>, report: CycleReport): Promise<void> {
+    if (this.broker.kind !== "paper") return this.syncZ(report);
     const block = this.risk.entryBlock((await this.account(evals)).equity, this.now());
     let filled = 0;
     for (const { key, value } of this.store.withPrefix("z_pending:")) {
@@ -429,22 +433,123 @@ export class BotEngine {
 
   }
 
-  /** Setup Z positions: out at their stop (from the fill bar on), or with their v1 position when it closes. */
-  private async followZ(evals: Map<string, Evaluation>, report: CycleReport): Promise<void> {
+  /**
+   * Setup Z positions: out with their v1 position when it closes. Paper also fills their stop from the
+   * bars (from the fill bar on: a limit filled inside a bar may be stopped in the same bar); on an
+   * exchange the stop rests there and reconcile books it.
+   */
+  private async followZ(evals: Map<string, Evaluation> | null, report: CycleReport): Promise<void> {
     for (const position of this.store.openPositions().filter((p) => p.setup === "z")) {
-      const ev = evals.get(position.symbol);
+      const ev = evals?.get(position.symbol);
       const parentId = Number(this.store.get(`z_parent:${position.id}`));
       const parent = parentId ? this.store.position(parentId) : null;
-      // The stop, from the fill bar on (a limit filled inside a bar may be stopped in the same bar).
-      const hit = ev?.bars.find((b) => b.time * 1000 >= position.signalTime && b.low <= position.stopPrice);
-      if (hit) {
-        await this.exit(position, Math.min(hit.open, position.stopPrice), "stop", report);
-        continue;
+      if (this.broker.kind === "paper") {
+        const hit = ev?.bars.find((b) => b.time * 1000 >= position.signalTime && b.low <= position.stopPrice);
+        if (hit) {
+          await this.exit(position, Math.min(hit.open, position.stopPrice), "stop", report);
+          continue;
+        }
       }
       if (!parent || parent.status !== "open") {
-        const ref = ev ? ev.bars[ev.bars.length - 1].close : (parent?.exitPrice ?? position.entryPrice);
+        const ref = ev ? ev.bars[ev.bars.length - 1].close : await this.market.price(position.symbol).catch(() => parent?.exitPrice ?? position.entryPrice);
         await this.exit(position, ref, "signal", report);
       }
+    }
+  }
+
+  /**
+   * Rest the Z limit for a new v1 position. Paper keeps it in the store and fills it from the bars; on
+   * an exchange it is a real GTC limit buy, sized now (0.25% risk at the zone's stop). Returns the note
+   * for the entry message.
+   */
+  private async restZ(parent: Position, zone: { level: number; stop: number }, barTime: number): Promise<string> {
+    const order: ZPending = { symbol: parent.symbol, level: zone.level, stop: zone.stop, after: barTime };
+    const note = ` · Z limit ${fmt(zone.level)} (stop ${fmt(zone.stop)})`;
+    if (this.broker.kind === "paper") {
+      this.store.set(`z_pending:${parent.id}`, JSON.stringify(order));
+      return note;
+    }
+    if (!stopInRange(zone.level, zone.stop)) return ` · Z skipped: zone stop ${((1 - zone.stop / zone.level) * 100).toFixed(1)}% under it is out of range`;
+    const { equity, cash } = await this.account();
+    const rules = await this.broker.rules(parent.symbol);
+    const stopPct = 1 - zone.stop / zone.level;
+    const openZ = this.store.openPositions().filter((p) => p.setup === "z").length + this.store.withPrefix("z_pending:").length;
+    const size = sizePosition(this.cfg, { equity, cash, openPositions: openZ, minNotional: rules.ok ? rules.minNotional : 5, setup: "z", stopPct, stepValue: (rules.stepSize ?? 0) * zone.level });
+    if (!size.ok) return ` · Z skipped: ${size.reason}`;
+    try {
+      const orderId = await this.broker.placeLimitBuy(parent.symbol, size.quote / zone.level, zone.level, clientId("z", parent.symbol, parent.signalTime, "l"));
+      this.store.set(`z_pending:${parent.id}`, JSON.stringify({ ...order, orderId: orderId ?? undefined }));
+      return `${note} · ${size.quote.toFixed(2)} USDT resting`;
+    } catch (err) {
+      this.store.log("error", "z", `${parent.symbol}: Z limit not placed — ${(err as Error).message}`, this.now());
+      return ` · Z limit not placed (${(err as Error).message})`;
+    }
+  }
+
+  /**
+   * Setup Z on an exchange (every cycle and every reconcile): a filled limit becomes a position with
+   * its stop resting at once (sold back if the stop cannot be placed); a limit whose v1 position has
+   * closed is cancelled, and whatever it had bought is sold with it; one that ended unfilled is dropped.
+   */
+  private async syncZ(report?: CycleReport): Promise<void> {
+    const say = async (line: string, kind: "entries" | "exits" | "errors") => {
+      if (report) report[kind].push(line);
+      else await this.notify(`${kind === "errors" ? "⚠️" : kind === "entries" ? "🟢" : "🔴"} ${line}`);
+    };
+    for (const { key, value } of this.store.withPrefix("z_pending:")) {
+      const parentId = Number(key.slice("z_pending:".length));
+      const order = JSON.parse(value) as ZPending;
+      const parent = this.store.position(parentId);
+      const parentOpen = parent?.status === "open";
+      if (!order.orderId) {
+        this.store.delete(key);
+        continue;
+      }
+      try {
+        let st = await this.broker.limitStatus(order.symbol, order.orderId);
+        if (st.state === "open" && parentOpen) continue; // still resting (partly filled: wait for the rest)
+        if (st.state === "open") {
+          await this.broker.cancelStop(order.symbol, order.orderId);
+          st = await this.broker.limitStatus(order.symbol, order.orderId);
+        }
+        this.store.delete(key);
+        const tag = `[Z] ${order.symbol}`;
+        if (!st.fill || st.fill.qty <= 0) {
+          this.store.log("info", "z", `${tag}: limit ${st.status.toLowerCase()} unfilled${parentOpen ? "" : " (v1 position closed)"}`, this.now());
+          continue;
+        }
+        const fill = st.fill;
+        // one second after its v1 signal: unique per pair, and a whole second for the order ids (≤ 36 chars)
+        const signalTime = (parent?.signalTime ?? Math.floor(this.now() / BAR_MS) * BAR_MS) + 1000;
+        const position = this.store.insertPosition({ setup: "z", symbol: order.symbol, signalTime, qty: fill.qty, entryPrice: fill.price, entryFee: fill.fee, cost: fill.quote, stopPrice: order.stop, stopOrderId: null, openedAt: this.now() });
+        this.store.set(`z_parent:${position.id}`, String(parentId));
+        await say(`${tag} long @ ${fmt(fill.price)} (zone limit${st.status === "FILLED" ? "" : `, ${st.status.toLowerCase()}`}) · ${fill.quote.toFixed(2)} USDT · stop ${fmt(order.stop)}`, "entries");
+        if (!parentOpen) {
+          const r: CycleReport = report ?? { barTime: 0, evaluated: 0, breadth: 0, breakouts: 0, entries: [], exits: [], skipped: [], errors: [], warnings: [] };
+          await this.exit(position, await this.market.price(order.symbol).catch(() => fill.price), "signal", r);
+          if (!report) for (const line of [...r.exits, ...r.errors]) await this.notify(line);
+          continue;
+        }
+        try {
+          this.store.setStopOrder(position.id, await this.broker.placeStop(order.symbol, fill.qty, order.stop, clientId("z", order.symbol, signalTime, "s")));
+        } catch (err) {
+          // Never hold a position without its stop: sell it back.
+          const back = await this.broker.sell(order.symbol, fill.qty, fill.price, clientId("z", order.symbol, signalTime, "f")).catch(() => null);
+          if (back) this.store.closePosition(position.id, { price: back.price, fee: back.fee, proceeds: back.quote, reason: "stop", time: this.now() });
+          await say(`${tag}: stop could not be placed (${(err as Error).message}) — ${back ? "sold back" : "SELL FAILED, check the account"}`, "errors");
+        }
+      } catch (err) {
+        this.store.log("error", "z", `${order.symbol}: ${(err as Error).message}`, this.now());
+      }
+    }
+  }
+
+  /** Cancel every resting Z limit (flatten). */
+  private async cancelZ(): Promise<void> {
+    for (const { key, value } of this.store.withPrefix("z_pending:")) {
+      const order = JSON.parse(value) as ZPending;
+      if (order.orderId) await this.broker.cancelStop(order.symbol, order.orderId).catch(() => {});
+      this.store.delete(key);
     }
   }
 
@@ -460,13 +565,15 @@ export class BotEngine {
   /** Free cash plus open positions marked at their last close. */
   async account(evals?: Map<string, Evaluation>): Promise<{ equity: number; cash: number }> {
     const cash = await this.broker.cash();
+    // USDT locked in resting Z limits is still the account's, only not free to spend.
+    const locked = this.store.withPrefix("z_pending:").length ? await this.broker.lockedCash() : 0;
     let value = 0;
     for (const p of this.store.openPositions()) {
       const bars = evals?.get(p.symbol)?.bars;
       const price = bars ? bars[bars.length - 1].close : await this.market.price(p.symbol).catch(() => p.entryPrice);
       value += p.qty * price;
     }
-    return { equity: cash + value, cash };
+    return { equity: cash + locked + value, cash };
   }
 
   private async markEquity(time: number, evals: Map<string, Evaluation>): Promise<void> {
@@ -479,8 +586,23 @@ export class BotEngine {
   /** Exchange modes: record stops that filled, and positions that vanished (sold by hand). */
   async reconcile(): Promise<void> {
     if (this.broker.kind === "paper") return;
+    // Setup Z first: a limit filled between bars gets its stop now, not at the next bar.
+    if (this.store.withPrefix("z_pending:").length) await this.syncZ();
     for (const p of this.store.openPositions()) {
       try {
+        // Never hold a position without a stop on an exchange: place it, or sell if that fails.
+        if (!p.stopOrderId && (await this.broker.holding(p.symbol)) >= p.qty * 0.05) {
+          try {
+            this.store.setStopOrder(p.id, await this.broker.placeStop(p.symbol, p.qty, p.stopPrice, clientId(p.setup, p.symbol, p.signalTime, `s${Date.now().toString(36).slice(-4)}`)));
+            this.store.log("warn", "reconcile", `${p.symbol}: had no stop — placed`, this.now());
+          } catch (err) {
+            const price = await this.market.price(p.symbol).catch(() => p.stopPrice);
+            const r: CycleReport = { barTime: 0, evaluated: 0, breadth: 0, breakouts: 0, entries: [], exits: [], skipped: [], errors: [], warnings: [] };
+            await this.exit(p, price, "stop", r);
+            await this.notify(`⚠️ ${p.symbol} had no stop and none could be placed (${(err as Error).message}) — ${r.exits[0] ?? r.errors[0] ?? "sell attempted"}`);
+            continue;
+          }
+        }
         if (p.stopOrderId) {
           const stop = await this.broker.stopStatus(p.symbol, p.stopOrderId);
           if (stop.state === "filled") {
@@ -500,6 +622,12 @@ export class BotEngine {
       } catch (err) {
         this.store.log("error", "reconcile", `${p.symbol}: ${(err as Error).message}`, this.now());
       }
+    }
+    // A v1 position stopped between bars takes its Z position with it.
+    if (this.store.openPositions().some((p) => p.setup === "z")) {
+      const r: CycleReport = { barTime: 0, evaluated: 0, breadth: 0, breakouts: 0, entries: [], exits: [], skipped: [], errors: [], warnings: [] };
+      await this.followZ(null, r);
+      for (const line of [...r.exits, ...r.errors]) await this.notify(`🔴 ${line}`);
     }
   }
 
@@ -568,8 +696,19 @@ export class BotEngine {
   }
 
   /** Sell everything now (kill switch). New entries stay paused afterwards. */
+  /**
+   * A deposit (amount > 0) or withdrawal (< 0) of USDT, told by the owner (/deposit, /withdraw): kept
+   * apart from the results. On paper it also moves the simulated cash.
+   */
+  async recordFlow(amount: number, note: string): Promise<void> {
+    this.store.addFlow(this.now(), amount, note);
+    if (this.broker instanceof PaperBroker) await this.broker.adjustCash(amount);
+    this.store.log("info", "flow", `${amount >= 0 ? "deposit" : "withdrawal"} ${Math.abs(amount).toFixed(2)} USDT${note ? ` (${note})` : ""}`, this.now());
+  }
+
   async flatten(reason: string): Promise<string[]> {
     this.risk.setPaused(true, `flatten: ${reason}`);
+    await this.cancelZ();
     const report: CycleReport = { barTime: 0, evaluated: 0, breadth: 0, breakouts: 0, entries: [], exits: [], skipped: [], errors: [], warnings: [] };
     for (const p of this.store.openPositions()) {
       const price = await this.market.price(p.symbol).catch(() => p.entryPrice);

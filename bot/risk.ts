@@ -77,7 +77,9 @@ export class RiskGate {
       this.store.set(key, String(equity));
       return true;
     }
-    return equity >= Number(start) * (1 - this.cfg.dailyLossLimit);
+    // A deposit today is not a gain, a withdrawal not a loss.
+    const flows = this.store.netFlows(Math.floor(now / 86_400_000) * 86_400_000);
+    return equity - flows >= Number(start) * (1 - this.cfg.dailyLossLimit);
   }
 
   /** Why new entries are blocked right now, if they are. */

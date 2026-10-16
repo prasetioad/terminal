@@ -13,6 +13,9 @@
  *   7  coins already in the account (outside the bot) block an entry on that pair
  *   8  a pair Binance will delist: no entry, and a held position is sold
  *   9  the stop cancelled outside the bot (by hand, or by the exchange): placed again
+ *  10  Setup Z: its limit fills → a Z position with its stop resting on the exchange
+ *  11  Setup Z: its v1 position closes → the Z position follows (stop cancelled, sold)
+ *  12  Setup Z: a limit still resting when its v1 position closes is cancelled
  *
  *   npx tsx bot/testnet-scenarios.ts [SYMBOL]      (keys from bot/.env; refuses anything but the testnet)
  */
@@ -239,6 +242,56 @@ async function main() {
     ok("9 stop cancelled outside the bot: placed again", Boolean(now?.stopOrderId) && now!.stopOrderId !== pos.stopOrderId && orders9.some((o) => String(o.orderId) === now!.stopOrderId), `${pos.stopOrderId} → ${now?.stopOrderId}`);
     await engine.flatten("scenario 9 cleanup");
   } else ok("9 stop cancelled outside the bot: entry", false, "no position");
+
+  /* 10–12 · Setup Z: real limit orders next to a v1 position (the parent is bought and stopped here) */
+  const zParent = async (tag: string) => {
+    const px = await market.price(symbol);
+    const sigTime = (await nextSignal()) + 7000;
+    const fill = await broker.buy(symbol, 15, px, `scn-${tag}-${run.toString(36)}-e`);
+    const stopId = await broker.placeStop(symbol, fill.qty, fill.price * 0.85, `scn-${tag}-${run.toString(36)}-s`);
+    return store.insertPosition({ setup: "v1", symbol, signalTime: sigTime, qty: fill.qty, entryPrice: fill.price, entryFee: fill.fee, cost: fill.quote, stopPrice: fill.price * 0.85, stopOrderId: stopId, openedAt: Date.now() });
+  };
+  const closeParent = async (p: { id: number; qty: number; stopOrderId: string | null; entryPrice: number }) => {
+    if (p.stopOrderId) await broker.cancelStop(symbol, p.stopOrderId);
+    const s = await broker.sell(symbol, p.qty, p.entryPrice, `scn-px-${p.id}-${run.toString(36)}`);
+    store.closePosition(p.id, { price: s.price, fee: s.fee, proceeds: s.quote, reason: "signal", time: Date.now() });
+  };
+  const openOrders = () => client.request<{ orderId: number; type: string; side: string }[]>("GET", "/api/v3/openOrders", { symbol }, true);
+  {
+    const parent = await zParent("z10");
+    const px = await market.price(symbol);
+    // a marketable limit (just above the price) fills at once, as a zone touched would
+    const level = px * 1.003;
+    const orderId = await broker.placeLimitBuy(symbol, 15 / level, level, `scn-z10-${run.toString(36)}-l`);
+    store.set(`z_pending:${parent.id}`, JSON.stringify({ symbol, level, stop: px * 0.9, after: 0, orderId }));
+    await sleep(1500);
+    await engine.reconcile();
+    const z = store.openPositions().find((p) => p.setup === "z");
+    const orders10 = await openOrders();
+    ok("10 Z limit filled: position + stop on the exchange", Boolean(z?.stopOrderId) && orders10.some((o) => String(o.orderId) === z!.stopOrderId), z ? `${z.qty.toPrecision(5)} @ ${z.entryPrice.toPrecision(6)} · stop ${z.stopOrderId}` : "no Z position");
+
+    /* 11 · the v1 position closes: Z follows */
+    await closeParent(store.position(parent.id)!);
+    await engine.reconcile();
+    await sleep(1500);
+    const z11 = z ? store.position(z.id) : null;
+    const orders11 = await openOrders();
+    ok("11 v1 closed: Z sold, its stop cancelled", z11?.status === "closed" && !orders11.some((o) => String(o.orderId) === z?.stopOrderId), z11 ? `${z11.exitReason} · P&L ${z11.pnl?.toFixed(4)}` : "no Z position");
+  }
+  {
+    /* 12 · a resting limit cancelled when its v1 position closes */
+    const parent = await zParent("z12");
+    const px = await market.price(symbol);
+    const level = px * 0.7;
+    const orderId = await broker.placeLimitBuy(symbol, 15 / level, level, `scn-z12-${run.toString(36)}-l`);
+    store.set(`z_pending:${parent.id}`, JSON.stringify({ symbol, level, stop: level * 0.95, after: 0, orderId }));
+    await engine.reconcile();
+    const resting = (await openOrders()).some((o) => String(o.orderId) === orderId);
+    await closeParent(store.position(parent.id)!);
+    await engine.reconcile();
+    const orders12 = await openOrders();
+    ok("12 v1 closed: resting Z limit cancelled", resting && !orders12.some((o) => String(o.orderId) === orderId) && store.withPrefix("z_pending:").length === 0, `rested ${resting} · open after ${orders12.length}`);
+  }
 
   /* clean state */
   const orders = await client.request<unknown[]>("GET", "/api/v3/openOrders", { symbol }, true);

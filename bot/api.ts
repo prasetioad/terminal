@@ -38,6 +38,8 @@ export interface StatusSnapshot {
   winRate: number | null;
   avgReturn: number | null;
   totalPnl: number;
+  /** Net USDT deposited since the start (withdrawals negative). */
+  netDeposits?: number;
   config: Pick<BotConfig, "riskPerTrade" | "maxOpenPositions" | "maxPositionFraction" | "minBreadth" | "minLiquidity30d" | "dailyLossLimit"> &
     Partial<Pick<BotConfig, "maxRiskPerBar" | "riskPerTradeA" | "maxOpenPositionsA" | "firstDotOnly" | "maxRsA" | "spikeTightenA" | "minSizeMaxRisk" | "zAddon" | "riskPerTradeZ">>;
 }
@@ -78,6 +80,7 @@ export async function statusSnapshot(engine: BotEngine, nextRun: number | null):
     winRate: rets.length ? rets.filter((r) => r > 0).length / rets.length : null,
     avgReturn: rets.length ? rets.reduce((a, b) => a + b, 0) / rets.length : null,
     totalPnl: closed.reduce((s, p) => s + p.pnl!, 0),
+    netDeposits: engine.store.netFlows(),
     config: {
       riskPerTrade: engine.cfg.riskPerTrade,
       maxOpenPositions: engine.cfg.maxOpenPositions,

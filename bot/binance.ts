@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import type { Broker, Fill, StopStatus, TradeRules } from "./broker";
+import type { Broker, Fill, LimitStatus, StopStatus, TradeRules } from "./broker";
 
 /**
  * Binance Spot: a signed REST client and the broker built on it.
@@ -164,6 +164,10 @@ export class BinanceSpotBroker implements Broker {
     return (await this.client.balances()).get("USDT")?.free ?? 0;
   }
 
+  async lockedCash(): Promise<number> {
+    return (await this.client.balances()).get("USDT")?.locked ?? 0;
+  }
+
   async holding(symbol: string): Promise<number> {
     const info = await this.client.symbolInfo(symbol);
     if (!info) return 0;
@@ -271,6 +275,35 @@ export class BinanceSpotBroker implements Broker {
     const fill = Number(o.executedQty) > 0 ? await this.fillOf(symbol, o, orderId) : null;
     if (o.status === "FILLED" && fill) return { state: "filled", fill };
     return { state: "gone", status: o.status, fill };
+  }
+
+  async placeLimitBuy(symbol: string, qty: number, price: number, clientId: string): Promise<string | null> {
+    const info = await this.client.symbolInfo(symbol);
+    if (!info) throw new Error(`limit ${symbol}: unknown symbol`);
+    const res = await this.order(symbol, { side: "BUY", type: "LIMIT", timeInForce: "GTC", quantity: floorToStep(qty, info.stepSize), price: floorToStep(price, info.tickSize), newClientOrderId: clientId });
+    return String(res.orderId);
+  }
+
+  async limitStatus(symbol: string, orderId: string): Promise<LimitStatus> {
+    let o: OrderResponse;
+    try {
+      o = await this.client.request<OrderResponse>("GET", "/api/v3/order", { symbol, orderId }, true);
+    } catch (err) {
+      if (err instanceof BinanceApiError && err.code === -2013) return { state: "done", status: "UNKNOWN", fill: null }; // no such order
+      throw err;
+    }
+    const open = o.status === "NEW" || o.status === "PENDING_NEW" || o.status === "PARTIALLY_FILLED";
+    let fill: Fill | null = null;
+    const qty = Number(o.executedQty);
+    if (qty > 0) {
+      const trades = await this.client.request<{ price: string; qty: string; commission: string; commissionAsset: string }[]>("GET", "/api/v3/myTrades", { symbol, orderId }, true);
+      const spent = Number(o.cummulativeQuoteQty);
+      const price = spent / qty;
+      const fee = await this.fees(symbol, { ...o, fills: trades }, price);
+      // as `buy`: a fee in the base asset reduces what is held; one in USDT/BNB adds to the cost
+      fill = { qty: qty - fee.base, price, fee: fee.usdt, quote: spent + (fee.usdt - fee.base * price), orderId };
+    }
+    return { state: open ? "open" : "done", status: o.status, fill };
   }
 
   /** What an order sold: quantity, average price, fees in USDT, USDT received. */

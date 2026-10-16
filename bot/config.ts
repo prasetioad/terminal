@@ -39,7 +39,7 @@ export interface BotConfig {
   maxRsA: number | null;
   /** Setup A: tighten the chandelier to 4×ATR after a tall up-bar (≥ 3×ATR) in profit (§4.16). */
   spikeTightenA: boolean;
-  /** Setup Z: a demand-zone limit next to every v1 entry (§4.50–4.52). Paper only, for the forward test. */
+  /** Setup Z: a demand-zone limit next to every v1 entry (§4.50–4.52): filled from the bars on paper, a real limit on an exchange. */
   zAddon: boolean;
   /** Setup Z: fraction of equity lost at its stop (under the zone). */
   riskPerTradeZ: number;
@@ -136,8 +136,6 @@ export function loadConfig(env: Env = process.env): BotConfig {
     apiToken: str(env, "API_TOKEN"),
     dbPath: env.DB_PATH ?? "bot/data/bot.sqlite",
   };
-  // Z rests limit orders the paper broker fills from the bars; on an exchange it is not built yet.
-  if (config.zAddon && config.mode !== "paper") throw new Error("Z_ADDON runs in paper mode only (forward test)");
   if (config.zAddon && !config.setups.includes("v1")) throw new Error("Z_ADDON needs Setup v1 in SETUPS (Z adds to v1 entries)");
   if (config.mode !== "paper" && (!config.binanceApiKey || !config.binanceApiSecret)) {
     throw new Error(`MODE=${config.mode} needs BINANCE_API_KEY and BINANCE_API_SECRET`);

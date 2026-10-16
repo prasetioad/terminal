@@ -47,7 +47,16 @@ export interface Broker {
   cancelStop(symbol: string, orderId: string): Promise<void>;
   /** Whether a resting stop is still resting, has filled, or has gone without (fully) filling. */
   stopStatus(symbol: string, orderId: string): Promise<StopStatus>;
+  /** Rest a limit buy of `qty` at `price` (Setup Z); null when the bot fills limits itself from the bars (paper). */
+  placeLimitBuy(symbol: string, qty: number, price: number, clientId: string): Promise<string | null>;
+  /** A resting limit buy: still open (maybe partly filled), or done (filled, cancelled, expired…), with what it bought. */
+  limitStatus(symbol: string, orderId: string): Promise<LimitStatus>;
+  /** USDT locked in open buy orders: part of the equity, not free to spend. */
+  lockedCash(): Promise<number>;
 }
+
+/** A limit buy's state; `fill` is what it bought so far (null: nothing), its fee taken as in `buy`. */
+export type LimitStatus = { state: "open" | "done"; status: string; fill: Fill | null };
 
 /**
  * Simulated broker. Cash lives in the bot's store so restarts keep the account;
@@ -106,5 +115,22 @@ export class PaperBroker implements Broker {
 
   async stopStatus(): Promise<StopStatus> {
     return { state: "resting" }; // paper stops are filled from the bars by the engine
+  }
+
+  async placeLimitBuy(): Promise<string | null> {
+    return null; // the engine fills paper limits from the bars, as the backtest does
+  }
+
+  async limitStatus(): Promise<LimitStatus> {
+    return { state: "done", status: "PAPER", fill: null };
+  }
+
+  async lockedCash(): Promise<number> {
+    return 0;
+  }
+
+  /** A deposit (positive) or a withdrawal (negative) on the paper account. */
+  async adjustCash(delta: number): Promise<void> {
+    this.setCash((await this.cash()) + delta);
   }
 }

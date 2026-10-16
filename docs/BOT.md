@@ -49,7 +49,7 @@ Bot bisa menjalankan **Setup v1** (kapitulasi) dan **Setup A** (breakout) bersam
 - **Eksperimen lokal:** `npm run bot:local` membaca `bot/.env.local` (v1.2 + A, paper $300, DB `bot/data/combined.sqlite`, tanpa Telegram karena token Telegram dipakai bot VPS).
 - `npm run bot:replay -- --days 365` menguji fidelity per setup. Hasil wajib: missing 0 · extra 0 · exit mismatches 0.
 
-## 1c. Setup Z: tambahan di zona demand (uji maju, paper saja)
+## 1c. Setup Z: tambahan di zona demand (uji maju di paper; siap untuk live, default mati)
 
 Riset §4.50–4.52 (`docs/ROADMAP.md`). Setiap kali v1 entry di titik hijau, Z memasang **limit buy di atas zona demand terdekat** di bawah harga entry:
 - **Zona:** tempat harga pernah naik ≥ 8% dalam 4 candle, dalam 120 candle terakhir. Batasnya dari low terendah 4 candle di awal rally sampai badan atas candle awal rally.
@@ -57,7 +57,10 @@ Riset §4.50–4.52 (`docs/ROADMAP.md`). Setiap kali v1 entry di titik hijau, Z 
 - **Stop:** 0,5% di bawah dasar zona. Dilewati kalau jaraknya ≤ 1% atau > 15% dari harga isi.
 - **Exit:** bersama posisi v1 (titik merah pertama) atau di stopnya sendiri. Limit yang belum terisi dibatalkan saat posisi v1 tutup.
 - **Risiko per koin dibagi:** v1 0,75% + Z 0,25% (`RISK_PER_TRADE=0.0075`, `RISK_PER_TRADE_Z=0.0025`, `MAX_RISK_PER_BAR=0.0375`). Z maksimal 5 entry per candle.
-- **Aktifkan** dengan `Z_ADDON=1`. Hanya mode paper: config menolak Z di testnet/live. Limit diisi dari candle 4h yang tutup, seperti backtest. Replay membuktikan bot identik dengan aturan riset (`npm run bot:replay`: Z 13/13 trade, 0 selisih).
+- **Aktifkan** dengan `Z_ADDON=1` (butuh `v1` di `SETUPS`). Replay membuktikan bot identik dengan aturan riset (`npm run bot:replay`: Z 13/13 trade, 0 selisih).
+- **Paper:** limit diisi dari candle 4h yang tutup, seperti backtest.
+- **Testnet/live:** limit GTC sungguhan dipasang di Binance saat v1 entry. Reconcile (setiap menit) memeriksa limit: kalau terisi, posisi Z dicatat dan stop-nya dipasang di exchange (kalau stop ditolak, koinnya langsung dijual lagi). Kalau posisi v1 tutup, limit dibatalkan dan bagian yang sudah terisi dijual. Posisi Z ikut keluar saat v1 keluar. Kas yang terkunci di limit tetap dihitung dalam equity. `/flatten` juga membatalkan limit.
+- **Penjaga stop:** posisi apa pun (v1, A, Z) yang tidak punya stop di exchange dipasangi stop baru oleh reconcile; kalau gagal, posisinya dijual.
 - Logika zona ada di `lib/setups/setupZ.ts`. Posisi Z ditandai `[Z]` di Telegram, panel, dan laporan.
 
 ## 2. Menjalankan secara lokal (paper)
@@ -91,6 +94,9 @@ npm run research:setup-v1         # backtest tanpa survivorship bias (semua pair
 | `/positions` | Posisi terbuka |
 | `/pause` · `/resume` | Hentikan / lanjutkan entry baru (posisi yang ada tetap dikelola) |
 | `/flatten CONFIRM` | **Kill switch:** jual semua posisi di market dan pause entry |
+| `/deposit N [catatan]` · `/withdraw N` | Catat setoran / penarikan USDT (lihat di bawah) |
+
+**Setoran dan penarikan.** Bot membaca saldo USDT langsung dari Binance, jadi setoran langsung bisa dipakai untuk ukuran posisi. Tapi tanpa dicatat, setoran terlihat seperti profit. Setelah menyetor USDT ke dompet Spot, kirim `/deposit 200` (dan `/withdraw 100` setelah menarik). Laporan harian dan "sejak mulai" lalu dihitung bersih dari setoran, batas rugi harian tidak terpicu oleh penarikan, dan panel menampilkan total setoran bersih (migrasi DB v4, tabel `flows`). Di mode paper, perintah ini juga menambah atau mengurangi kas paper. Simpan koin yang bukan milik bot (misalnya BTC tabungan) di luar dompet Spot yang dipakai bot.
 
 **Laporan harian** (setiap bot ke Telegram-nya sendiri): equity dan perubahan 24 jam, posisi terbuka beserta P&L, aktivitas 24 jam (entry, exit, P&L realisasi, jumlah siklus, error), peringatan Binance, dan (bot Ops) kesehatan collector. Masalah ditandai di baris atas: siklus kurang dari 5 dari 6, ada error, entry di-pause, pair yang dipegang mendapat peringatan Binance, collector berhenti. **Kalau laporan pukul 08:00 WIB tidak datang, ada yang mati.**
 
@@ -101,7 +107,7 @@ npm run research:setup-v1         # backtest tanpa survivorship bias (semua pair
 1. Buka https://testnet.binance.vision, login dengan GitHub, lalu **Generate HMAC_SHA256 Key**.
 2. Di `bot/.env`: `MODE=testnet`, `BINANCE_API_KEY=…`, `BINANCE_API_SECRET=…`.
 3. Cek jalur eksekusi dengan uang mainan: `npx tsx bot/testnet-check.ts BTCUSDT 15`. Script ini membeli, memasang stop −15% di exchange, membatalkannya, menjual kembali, lalu memastikan pembukuan bot cocok dengan saldo Binance.
-4. **Skenario eksekusi lengkap:** `npm run bot:testnet-scenarios`. Sinyal sintetis, tapi order sungguhan di testnet lewat engine bot: entry Setup A dengan stop di exchange, restart di tengah posisi (tanpa beli ganda), exit trailing (stop dibatalkan lalu jual market), stop terisi di exchange (dicatat oleh reconcile), penjualan manual terdeteksi, `/pause` dan `/flatten`, serta koin milik akun yang memblokir entry. Hasil wajib: `ALL TESTNET SCENARIOS PASSED`. Lulus 2026-10-05.
+4. **Skenario eksekusi lengkap:** `npm run bot:testnet-scenarios`. Sinyal sintetis, tapi order sungguhan di testnet lewat engine bot: entry Setup A dengan stop di exchange, restart di tengah posisi (tanpa beli ganda), exit trailing (stop dibatalkan lalu jual market), stop terisi di exchange (dicatat oleh reconcile), penjualan manual terdeteksi, `/pause` dan `/flatten`, serta koin milik akun yang memblokir entry. Skenario 10–12 (Setup Z): limit terisi lalu stop terpasang di exchange; v1 tutup lalu Z dijual dan stopnya dibatalkan; limit yang belum terisi dibatalkan. Hasil wajib: `ALL TESTNET SCENARIOS PASSED`. Lulus 2026-10-05 (1–9).
 5. **Peringatan Binance (delisting, Monitoring):** setiap siklus bot membaca jadwal delisting spot resmi (`/sapi/v1/spot/delist-schedule`, butuh key live; tanpa key: dari judul pengumuman "Binance Will Delist …", hanya delisting token) dan tag Monitoring (data produk publik Binance), diperbarui setiap jam. Pair yang akan di-delist atau bertag Monitoring tidak di-entry. Posisi di pair yang diumumkan akan di-delist **dijual di siklus berikutnya** (alasan exit `delist`). Tag Monitoring pada posisi terbuka hanya memicu satu peringatan 🚩 di Telegram. Scanner menampilkan label DELIST/MONITORING (dari sumber publik).
 6. **Stop yang hilang tanpa terisi:** setiap menit bot memeriksa status stop di exchange. Kalau stop dibatalkan (manual di app Binance, atau oleh Binance saat maintenance/delisting), kedaluwarsa, ditolak, atau tidak ditemukan: (a) kalau sempat terisi sebagian, sisa koin dijual market dan posisi dibukukan sebagai satu exit stop; (b) kalau tidak terisi dan harga masih di atas stop, stop dipasang ulang dan dikirim peringatan 🚩; (c) kalau harga sudah di bawah stop, atau stop tidak bisa dipasang ulang, posisi dijual market. Posisi tidak pernah dibiarkan tanpa stop.
 7. **Koin di luar bot:** di testnet/live, bot tidak entry di pair yang koinnya sudah ada di akun (nilai > $1). Dengan begitu koin pribadimu tidak tercampur dengan posisi bot, penjualan manual tetap terdeteksi, dan exit tidak pernah menjual koinmu.

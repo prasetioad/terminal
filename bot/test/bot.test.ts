@@ -17,6 +17,8 @@ import { dailyReport, traitCheck } from "../report";
 import { EMPTY_RISK, parseDelistTitles, type RiskList } from "../../lib/server/binanceRisk";
 
 const noRisk = async () => EMPTY_RISK;
+/** Brokers in these tests that never rest a limit (Setup Z is off for them). */
+const noLimits = { placeLimitBuy: async () => null, limitStatus: async () => ({ state: "done" as const, status: "NONE", fill: null }), lockedCash: async () => 0 };
 import { BAR_MS, SETTLE_MS, barDue, lastClosedBar, nextRunAt } from "../market";
 import { ReplayMarketData } from "../replay";
 import { RiskGate, sizePosition } from "../risk";
@@ -309,6 +311,7 @@ describe("engine", () => {
     const paper = new PaperBroker(store, 10_000, 0.001, 0);
     const exchange: Broker = {
       kind: "testnet",
+      ...noLimits,
       cash: () => paper.cash(),
       holding: async () => 3, // the owner's coins
       rules: async () => ({ ok: true, minNotional: 5 }),
@@ -330,6 +333,7 @@ describe("engine", () => {
     const sells: string[] = [];
     const broken: Broker = {
       kind: "testnet",
+      ...noLimits,
       cash: () => paper.cash(),
       holding: async () => 0,
       rules: async () => ({ ok: true, minNotional: 5 }),
@@ -546,6 +550,7 @@ describe("a stop that ends without filling (cancelled, expired, unknown)", () =>
     const sent: string[] = [];
     const broker: Broker = {
       kind: "live",
+      ...noLimits,
       cash: async () => 0,
       holding: async () => o.holding,
       rules: async () => ({ ok: true, minNotional: 5 }),
@@ -697,9 +702,10 @@ describe("setup Z (demand-zone add-on, paper)", () => {
     assert.equal(zoneOrder([...c.slice(0, 199), bar(199, 101)], 199), null);
     assert.equal(zoneOrder([...c.slice(0, 199), bar(199, 120)], 199), null);
   });
-  it("runs in paper mode only, next to Setup v1", () => {
+  it("runs next to Setup v1, off unless switched on", () => {
+    assert.equal(loadConfig({}).zAddon, false);
     assert.equal(loadConfig({ Z_ADDON: "1" }).zAddon, true);
-    assert.throws(() => loadConfig({ Z_ADDON: "1", MODE: "testnet", BINANCE_API_KEY: "k", BINANCE_API_SECRET: "s" }), /paper mode only/);
+    assert.equal(loadConfig({ Z_ADDON: "1", MODE: "testnet", BINANCE_API_KEY: "k", BINANCE_API_SECRET: "s" }).zAddon, true);
     assert.throws(() => loadConfig({ Z_ADDON: "1", SETUPS: "a" }), /needs Setup v1/);
   });
 
@@ -762,5 +768,180 @@ describe("cycle schedule", () => {
     assert.equal(lastClosedBar(due - 3), bar);
     assert.equal(barDue(due, due - 3), bar + BAR_MS);
     assert.equal(barDue(due, due + 60_000), bar + BAR_MS);
+  });
+});
+
+describe("setup Z on an exchange (limit orders)", () => {
+  /** A fake exchange: a scripted limit order, stops that rest, market orders that fill at the reference price. */
+  function exchange(limit: { state: "open" | "done"; status: string; fill: Fill | null }, opts: { stopFails?: boolean; afterCancel?: { state: "open" | "done"; status: string; fill: Fill | null } } = {}) {
+    const log: string[] = [];
+    let current = limit;
+    // Binance: newClientOrderId must match ^[.A-Z:/a-z0-9_-]{1,36}$
+    const valid = (id: string) => {
+      if (!/^[.A-Za-z0-9:/_-]{1,36}$/.test(id)) throw new Error(`invalid client order id ${id}`);
+    };
+    const broker: Broker = {
+      kind: "testnet",
+      cash: async () => 1000,
+      lockedCash: async () => 25,
+      holding: async () => 1e9,
+      rules: async () => ({ ok: true, minNotional: 5, stepSize: 0.01 }),
+      buy: async (_s, q, p) => ({ qty: q / p, price: p, fee: 0, quote: q, orderId: "b" }),
+      sell: async (_s, q, p, c) => {
+        valid(c);
+        log.push(`sell ${q} ${c}`);
+        return { qty: q, price: p, fee: 0, quote: q * p, orderId: "x" };
+      },
+      placeStop: async (_s, q, p, c) => {
+        valid(c);
+        if (opts.stopFails) throw new Error("rejected");
+        log.push(`stop ${q} @ ${p}`);
+        return `S${log.length}`;
+      },
+      cancelStop: async (_s, id) => {
+        log.push(`cancel ${id}`);
+        if (id === "L1" && opts.afterCancel) current = opts.afterCancel;
+      },
+      stopStatus: async () => ({ state: "resting" }),
+      placeLimitBuy: async (_s, q, p, c) => {
+        valid(c);
+        log.push(`limit ${q} @ ${p}`);
+        return "L1";
+      },
+      limitStatus: async () => current,
+    };
+    return { broker, log };
+  }
+  const market = new ReplayMarketData(new Map([["TESTUSDT", syntheticSeries(300, 3)]]));
+  market.current = Number.MAX_SAFE_INTEGER;
+  const cfg = { ...loadConfig({ Z_ADDON: "1", MODE: "testnet", BINANCE_API_KEY: "k", BINANCE_API_SECRET: "s" }), minLiquidity30d: 0 };
+  const setup = (broker: Broker) => {
+    const store = new BotStore(":memory:");
+    const engine = new BotEngine(cfg, store, market, broker, { send: async () => {} }, () => Date.UTC(2026, 9, 16), noRisk);
+    const parent = store.insertPosition({ setup: "v1", symbol: "TESTUSDT", signalTime: Date.UTC(2026, 9, 15, 12), qty: 3, entryPrice: 12, entryFee: 0, cost: 36, stopPrice: 10.2, stopOrderId: "P", openedAt: 1 });
+    store.set(`z_pending:${parent.id}`, JSON.stringify({ symbol: "TESTUSDT", level: 11, stop: 10.5, after: 0, orderId: "L1" }));
+    return { store, engine, parent };
+  };
+  const filled: Fill = { qty: 2, price: 11, fee: 0.02, quote: 22.02, orderId: "L1" };
+
+  it("a filled limit becomes a position with its stop resting at once", async () => {
+    const { broker, log } = exchange({ state: "done", status: "FILLED", fill: filled });
+    const { store, engine } = setup(broker);
+    await engine.reconcile();
+    const z = store.openPositions().find((p) => p.setup === "z");
+    assert.ok(z && z.qty === 2 && z.entryPrice === 11 && z.stopPrice === 10.5 && z.stopOrderId);
+    assert.deepEqual(log, ["stop 2 @ 10.5"]);
+    assert.equal(store.withPrefix("z_pending:").length, 0);
+  });
+
+  it("keeps waiting while the limit rests, and counts its USDT as equity", async () => {
+    const { broker, log } = exchange({ state: "open", status: "NEW", fill: null });
+    const { store, engine } = setup(broker);
+    await engine.reconcile();
+    assert.equal(store.withPrefix("z_pending:").length, 1);
+    assert.deepEqual(log, []);
+    const { equity, cash } = await engine.account();
+    assert.equal(cash, 1000);
+    assert.ok(equity >= 1025, "free + locked + the v1 position");
+  });
+
+  it("cancels the limit when its v1 position closes, and sells what it had bought", async () => {
+    const part: Fill = { qty: 1, price: 11, fee: 0.01, quote: 11.01, orderId: "L1" };
+    const { broker, log } = exchange({ state: "open", status: "PARTIALLY_FILLED", fill: part }, { afterCancel: { state: "done", status: "CANCELED", fill: part } });
+    const { store, engine, parent } = setup(broker);
+    store.closePosition(parent.id, { price: 12.5, fee: 0, proceeds: 37.5, reason: "signal", time: 2 });
+    await engine.reconcile();
+    assert.equal(log[0], "cancel L1");
+    assert.match(log[1], /^sell 1 svz-/);
+    const z = store.closedPositions().find((p) => p.setup === "z");
+    assert.ok(z && z.exitReason === "signal");
+    assert.equal(store.withPrefix("z_pending:").length, 0);
+  });
+
+  it("drops a limit that ended unfilled", async () => {
+    const { broker } = exchange({ state: "done", status: "EXPIRED", fill: null });
+    const { store, engine } = setup(broker);
+    await engine.reconcile();
+    assert.equal(store.withPrefix("z_pending:").length, 0);
+    assert.equal(store.openPositions().filter((p) => p.setup === "z").length, 0);
+  });
+
+  it("never holds a Z position without its stop", async () => {
+    const { broker, log } = exchange({ state: "done", status: "FILLED", fill: filled }, { stopFails: true });
+    const { store, engine } = setup(broker);
+    await engine.reconcile();
+    assert.match(log[0], /^sell 2 svz-.*-f$/);
+    assert.equal(store.openPositions().filter((p) => p.setup === "z").length, 0);
+  });
+
+  it("follows its v1 position when that one is stopped between bars", async () => {
+    const { broker, log } = exchange({ state: "done", status: "FILLED", fill: filled });
+    const { store, engine, parent } = setup(broker);
+    await engine.reconcile(); // the Z position opens with its stop
+    store.closePosition(parent.id, { price: 10.2, fee: 0, proceeds: 30.6, reason: "stop", time: 3 });
+    await engine.reconcile();
+    const z = store.closedPositions().find((p) => p.setup === "z");
+    assert.ok(z && z.exitReason === "signal", "out with its v1 position");
+    assert.ok(log.some((l) => l.startsWith("cancel S")), "its stop cancelled first");
+  });
+
+  it("builds valid order ids even from a signal time that is not a whole second", async () => {
+    const { broker, log } = exchange({ state: "done", status: "FILLED", fill: filled });
+    const store = new BotStore(":memory:");
+    const engine = new BotEngine(cfg, store, market, broker, { send: async () => {} }, () => 0, noRisk);
+    const parent = store.insertPosition({ setup: "v1", symbol: "TESTUSDT", signalTime: Date.UTC(2026, 9, 15, 12) + 7, qty: 3, entryPrice: 12, entryFee: 0, cost: 36, stopPrice: 10.2, stopOrderId: "P", openedAt: 1 });
+    store.set(`z_pending:${parent.id}`, JSON.stringify({ symbol: "TESTUSDT", level: 11, stop: 10.5, after: 0, orderId: "L1" }));
+    await engine.reconcile();
+    assert.ok(store.openPositions().find((p) => p.setup === "z")?.stopOrderId, "the stop was accepted");
+    assert.deepEqual(log, ["stop 2 @ 10.5"]);
+  });
+
+  it("places a missing stop on reconcile, and sells when it cannot", async () => {
+    const { broker, log } = exchange({ state: "done", status: "NONE", fill: null });
+    const store = new BotStore(":memory:");
+    const engine = new BotEngine(cfg, store, market, broker, { send: async () => {} }, () => 0, noRisk);
+    const p = store.insertPosition({ setup: "v1", symbol: "TESTUSDT", signalTime: Date.UTC(2026, 9, 15, 12), qty: 2, entryPrice: 11, entryFee: 0, cost: 22, stopPrice: 10.5, stopOrderId: null, openedAt: 1 });
+    await engine.reconcile();
+    assert.ok(store.position(p.id)?.stopOrderId, "placed");
+    assert.deepEqual(log, ["stop 2 @ 10.5"]);
+    const { broker: failing, log: log2 } = exchange({ state: "done", status: "NONE", fill: null }, { stopFails: true });
+    const store2 = new BotStore(":memory:");
+    const engine2 = new BotEngine(cfg, store2, market, failing, { send: async () => {} }, () => 0, noRisk);
+    const q = store2.insertPosition({ setup: "v1", symbol: "TESTUSDT", signalTime: Date.UTC(2026, 9, 15, 12), qty: 2, entryPrice: 11, entryFee: 0, cost: 22, stopPrice: 10.5, stopOrderId: null, openedAt: 1 });
+    await engine2.reconcile();
+    assert.equal(store2.position(q.id)?.status, "closed");
+    assert.match(log2[0], /^sell 2 /);
+  });
+
+  it("flatten cancels the resting limits", async () => {
+    const { broker, log } = exchange({ state: "open", status: "NEW", fill: null });
+    const { store, engine } = setup(broker);
+    await engine.flatten("test");
+    assert.ok(log.includes("cancel L1"));
+    assert.equal(store.withPrefix("z_pending:").length, 0);
+  });
+});
+
+describe("deposits and withdrawals", () => {
+  it("keep the daily loss limit and the report apart from the results", async () => {
+    const cfg = loadConfig({});
+    const store = new BotStore(":memory:");
+    const risk = new RiskGate(cfg, store);
+    const now = Date.UTC(2026, 9, 16, 10);
+    assert.equal(risk.withinDailyLoss(100, now), true); // the day starts at 100
+    store.addFlow(now, -20, "to the BTC wallet");
+    assert.equal(risk.withinDailyLoss(80, now), true, "a withdrawal is not a loss");
+    store.addFlow(now, 50);
+    assert.equal(risk.withinDailyLoss(124, now), false, "a deposit does not hide a 6% loss");
+    assert.equal(store.netFlows(), 30);
+  });
+  it("move the paper cash and show up in the report", async () => {
+    const store = new BotStore(":memory:");
+    const engine = new BotEngine(loadConfig({ PAPER_START_EQUITY: "100" }), store, new ReplayMarketData(new Map()), new PaperBroker(store, 100, 0.001, 0), { send: async () => {} }, () => Date.UTC(2026, 9, 16), noRisk);
+    await engine.recordFlow(400, "top-up");
+    assert.equal((await engine.account()).equity, 500);
+    const text = await dailyReport(engine, null, Date.UTC(2026, 9, 16));
+    assert.match(text, /since start \+0\.00%/);
+    assert.match(text, /net deposits \+400\.00/);
   });
 });

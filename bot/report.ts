@@ -83,8 +83,9 @@ export async function dailyReport(engine: BotEngine, nextRun: number | null, now
   // Equity: now, 24h ago, since the start.
   const curve = store.equityCurve(1000);
   const before = [...curve].reverse().find((c) => c.time <= since) ?? curve[0];
-  const day = before ? s.equity - before.equity : 0;
-  const start = s.startEquity ?? curve[0]?.equity ?? s.equity;
+  // Deposits and withdrawals are not results.
+  const day = before ? s.equity - before.equity - store.netFlows(before.time) : 0;
+  const start = (s.startEquity ?? curve[0]?.equity ?? s.equity) + store.netFlows();
 
   // The last 24 hours.
   const events = store.eventsSince(since);
@@ -130,7 +131,7 @@ export async function dailyReport(engine: BotEngine, nextRun: number | null, now
     `📋 <b>Daily report · ${esc(setupsName(cfg))} · ${cfg.mode.toUpperCase()}</b>`,
     ...(flags.length ? flags : ["✅ all systems normal"]),
     "",
-    `Equity <b>${s.equity.toFixed(2)} USDT</b> · 24h ${usd(day)} · since start ${pct(start ? s.equity / start - 1 : 0)} · cash ${s.cash.toFixed(2)}`,
+    `Equity <b>${s.equity.toFixed(2)} USDT</b> · 24h ${usd(day)} · since start ${pct(start ? s.equity / start - 1 : 0)} · cash ${s.cash.toFixed(2)}${store.netFlows() ? ` · net deposits ${usd(store.netFlows())}` : ""}`,
     `Open ${open.length} position(s)${openLines.length ? ":" : ""}`,
     ...openLines,
     `Last 24h: ${entries} entr${entries === 1 ? "y" : "ies"} · ${exits.length} exit(s) · realized ${usd(realized)} USDT · ${cycles} cycles · ${errors.length} errors`,

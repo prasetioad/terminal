@@ -2,7 +2,7 @@ import { SETUP_LABEL, type BotEngine, type Notifier } from "./engine";
 
 /**
  * Telegram: notifications, and a few commands from the configured chat only.
- *   /status · /positions · /pause · /resume · /flatten CONFIRM · /help
+ *   /status · /report · /positions · /pause · /resume · /flatten CONFIRM · /deposit N · /withdraw N
  * Without TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID the bot just logs (ConsoleNotifier).
  */
 
@@ -73,8 +73,18 @@ export class TelegramNotifier implements Notifier {
         if (arg !== "CONFIRM") return this.send("This sells every open position at market and pauses entries. Send: /flatten CONFIRM");
         await engine.flatten("telegram /flatten");
         return;
+      case "/deposit":
+      case "/withdraw": {
+        const amount = Number(arg);
+        const sign = cmd.toLowerCase().startsWith("/deposit") ? 1 : -1;
+        if (!(amount > 0) || !Number.isFinite(amount)) return this.send(`Usage: ${cmd} 100 — the USDT you ${sign > 0 ? "deposited to" : "withdrew from"} the bot's Spot wallet, so results stay apart from it`);
+        const note = text.split(/\s+/).slice(2).join(" ");
+        await engine.recordFlow(sign * amount, note);
+        const { equity } = await engine.account();
+        return this.send(`${sign > 0 ? "💵 Deposit" : "🏧 Withdrawal"} of ${amount.toFixed(2)} USDT recorded · net deposits ${engine.store.netFlows().toFixed(2)} · equity ${equity.toFixed(2)} USDT`);
+      }
       default:
-        return this.send("Commands: /status · /report · /positions · /pause · /resume · /flatten CONFIRM");
+        return this.send("Commands: /status · /report · /positions · /pause · /resume · /flatten CONFIRM · /deposit N · /withdraw N");
     }
   }
 }
